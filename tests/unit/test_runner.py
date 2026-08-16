@@ -152,7 +152,7 @@ def test_create_transaction_writes_declared_targets_and_completed_manifest(
 def test_create_transaction_no_change_skips_backup(workspace: Workspace) -> None:
     existing = workspace.root / "existing"
     existing.mkdir()
-    (existing / "same.txt").write_text("same\n", encoding="utf-8")
+    (existing / "same.txt").write_bytes(b"same\n")
     plan = create_plan(
         workspace,
         [

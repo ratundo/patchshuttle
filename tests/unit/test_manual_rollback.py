@@ -634,17 +634,17 @@ def test_manual_rollback_preflight_maps_modes_types_and_inspection_errors(
     )
 
     target = workspace.root / "existing.txt"
-    target.chmod(0o600 if target.stat().st_mode & 0o777 != 0o600 else 0o640)
+    applied_mode = next(
+        entry.applied_mode
+        for entry in loaded.entries
+        if entry.path == PurePosixPath("existing.txt")
+    )
+    target.chmod(0o444 if applied_mode != 0o444 else 0o666)
+    assert target.stat().st_mode & 0o777 != applied_mode
     with pytest.raises(ExecutionError) as mode:
         rollback_module._preflight_manual_rollback(workspace, loaded)
     assert mode.value.path == "existing.txt"
-    target.chmod(
-        next(
-            entry.applied_mode
-            for entry in loaded.entries
-            if entry.path == PurePosixPath("existing.txt")
-        )
-    )
+    target.chmod(applied_mode)
 
     file_entry = next(
         entry

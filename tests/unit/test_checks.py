@@ -15,6 +15,7 @@ import patchshuttle.checks.runner as checks_module
 import patchshuttle.planner as planner_module
 import patchshuttle.workspace as workspace_module
 from patchshuttle import Job
+from patchshuttle import _process as process_module
 from patchshuttle.checks import CheckStatus, prepare_checks, run_checks
 from patchshuttle.config import CheckProfileSettings, ChecksSettings
 from patchshuttle.planner import Plan, plan_job
@@ -437,10 +438,12 @@ def test_process_termination_escalates_and_tolerates_signal_errors(
         def kill(self):
             operations.append("kill")
 
+    monkeypatch.setattr(checks_module.os, "name", "posix")
     monkeypatch.setattr(
         checks_module.os,
         "killpg",
         lambda *args: (_ for _ in ()).throw(OSError("signal failed")),
+        raising=False,
     )
 
     checks_module._terminate_process(StubbornProcess())
@@ -466,3 +469,15 @@ def test_windows_signal_path_uses_direct_process_operation(
     checks_module._signal_process(Process(), force=True)
 
     assert operations == ["terminate", "kill"]
+
+
+def test_process_group_options_are_platform_specific(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(process_module.os, "name", "posix")
+    assert process_module._process_group_options() == {"start_new_session": True}
+
+    monkeypatch.setattr(process_module.os, "name", "nt")
+    assert process_module._process_group_options() == {
+        "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    }

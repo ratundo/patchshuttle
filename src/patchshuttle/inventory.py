@@ -304,10 +304,13 @@ def _hash_regular_file(
 
 
 def _same_file_state(left: os.stat_result, right: os.stat_result) -> bool:
+    identity_available = left.st_ino != 0 and right.st_ino != 0
     return (
         stat.S_ISREG(right.st_mode)
-        and left.st_dev == right.st_dev
-        and left.st_ino == right.st_ino
+        and (
+            not identity_available
+            or (left.st_dev == right.st_dev and left.st_ino == right.st_ino)
+        )
         and left.st_size == right.st_size
         and left.st_mtime_ns == right.st_mtime_ns
         and stat.S_IMODE(left.st_mode) == stat.S_IMODE(right.st_mode)

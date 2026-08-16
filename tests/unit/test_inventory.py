@@ -117,6 +117,8 @@ def test_capture_inventory_hashes_files_and_skips_ignored_trees(
 def test_capture_records_symlinks_and_special_files_without_following(
     workspace: Workspace,
 ) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("named pipes are unavailable")
     target = workspace.root.parent / "outside-inventory-target.txt"
     target.write_text("outside\n", encoding="utf-8")
     link = workspace.root / "outside-link"
@@ -252,6 +254,31 @@ def test_same_file_state_rejects_each_changed_identity_field(field: str) -> None
 
     assert inventory_module._same_file_state(base, changed) is False  # noqa: SLF001
     assert inventory_module._same_file_state(base, base) is True  # noqa: SLF001
+
+
+def test_same_file_state_accepts_unavailable_platform_identity() -> None:
+    directory_metadata = SimpleNamespace(
+        st_mode=stat.S_IFREG | 0o644,
+        st_dev=0,
+        st_ino=0,
+        st_size=3,
+        st_mtime_ns=4,
+    )
+    descriptor_metadata = SimpleNamespace(
+        st_mode=stat.S_IFREG | 0o644,
+        st_dev=7,
+        st_ino=11,
+        st_size=3,
+        st_mtime_ns=4,
+    )
+
+    assert (
+        inventory_module._same_file_state(  # noqa: SLF001
+            directory_metadata,
+            descriptor_metadata,
+        )
+        is True
+    )
 
 
 def test_compare_inventories_classifies_all_changes_and_expected_paths() -> None:

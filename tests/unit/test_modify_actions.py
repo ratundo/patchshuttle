@@ -64,13 +64,15 @@ def test_atomic_replace_writes_exact_bytes_and_requested_mode(
     workspace: Workspace,
 ) -> None:
     change = planned_change(workspace)
-
-    atomic_replace_file(workspace, change, mode=0o640)
-
-    verify_modified_file(workspace, change, mode=0o640)
     target = workspace.root / change.path
+    target.chmod(0o640)
+    mode = stat.S_IMODE(target.stat().st_mode)
+
+    atomic_replace_file(workspace, change, mode=mode)
+
+    verify_modified_file(workspace, change, mode=mode)
     assert target.read_bytes() == b"after!\n"
-    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+    assert stat.S_IMODE(target.stat().st_mode) == mode
     assert not list(workspace.root.glob(".patchshuttle-*.tmp"))
 
 
@@ -149,15 +151,16 @@ def test_verify_modified_file_rejects_each_post_state_mismatch(
     target = workspace.root / change.path
     target.write_bytes(change.content)
     target.chmod(0o640)
-    verify_modified_file(workspace, change, mode=0o640)
+    mode = stat.S_IMODE(target.stat().st_mode)
+    verify_modified_file(workspace, change, mode=mode)
 
     target.write_bytes(b"x")
     with pytest.raises(OSError, match="post-state validation"):
-        verify_modified_file(workspace, change, mode=0o640)
+        verify_modified_file(workspace, change, mode=mode)
 
     target.write_bytes(b"wrong!\n")
     with pytest.raises(OSError, match="post-state validation"):
-        verify_modified_file(workspace, change, mode=0o640)
+        verify_modified_file(workspace, change, mode=mode)
 
     raw = b"actual\n"
     target.write_bytes(raw)
@@ -168,12 +171,14 @@ def test_verify_modified_file_rejects_each_post_state_mismatch(
         after_sha256=hashlib.sha256(raw).hexdigest(),
     )
     with pytest.raises(OSError, match="post-state validation"):
-        verify_modified_file(workspace, content_only, mode=0o640)
+        verify_modified_file(workspace, content_only, mode=mode)
 
     target.write_bytes(change.content)
-    target.chmod(0o600)
+    target.chmod(0o444 if mode != 0o444 else 0o666)
+    assert stat.S_IMODE(target.stat().st_mode) != mode
     with pytest.raises(OSError, match="post-state validation"):
-        verify_modified_file(workspace, change, mode=0o640)
+        verify_modified_file(workspace, change, mode=mode)
+    target.chmod(mode)
 
 
 def test_atomic_restore_accepts_missing_file_and_rejects_directory(
@@ -181,13 +186,17 @@ def test_atomic_restore_accepts_missing_file_and_rejects_directory(
 ) -> None:
     path = PurePosixPath("restored.txt")
     target = workspace.root / path
+    target.write_bytes(b"mode probe\n")
+    target.chmod(0o640)
+    mode = stat.S_IMODE(target.stat().st_mode)
+    target.unlink()
 
-    atomic_restore_file(workspace, path, b"original\n", mode=0o640)
+    atomic_restore_file(workspace, path, b"original\n", mode=mode)
     verify_restored_file(
         workspace,
         path,
         b"original\n",
-        mode=0o640,
+        mode=mode,
     )
 
     target.write_bytes(b"modified\n")
@@ -196,20 +205,22 @@ def test_atomic_restore_accepts_missing_file_and_rejects_directory(
             workspace,
             path,
             b"original\n",
-            mode=0o640,
+            mode=mode,
         )
 
     target.write_bytes(b"original\n")
-    target.chmod(0o600)
+    target.chmod(0o444 if mode != 0o444 else 0o666)
+    assert stat.S_IMODE(target.stat().st_mode) != mode
     with pytest.raises(OSError, match="post-state validation"):
         verify_restored_file(
             workspace,
             path,
             b"original\n",
-            mode=0o640,
+            mode=mode,
         )
 
+    target.chmod(mode)
     target.unlink()
     target.mkdir()
     with pytest.raises(OSError, match="unexpected type"):
-        atomic_restore_file(workspace, path, b"original\n", mode=0o640)
+        atomic_restore_file(workspace, path, b"original\n", mode=mode)

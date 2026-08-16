@@ -167,6 +167,11 @@ def test_transaction_rollback_restores_original_and_removes_created_paths(
 ) -> None:
     plan = modify_plan(workspace)
     backup = prepare_backup(plan)
+    original_mode = next(
+        entry.original_mode
+        for entry in backup.entries
+        if entry.path == PurePosixPath("existing.txt")
+    )
     target = workspace.root / "existing.txt"
     target.write_bytes(b"after\n")
     target.chmod(0o600)
@@ -188,7 +193,7 @@ def test_transaction_rollback_restores_original_and_removes_created_paths(
     assert result.removed_files == (PurePosixPath("created/new.txt"),)
     assert result.removed_directories == (PurePosixPath("created"),)
     assert target.read_bytes() == b"before\n"
-    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+    assert stat.S_IMODE(target.stat().st_mode) == original_mode
 
 
 def test_transaction_rollback_reports_missing_and_incomplete_entries(

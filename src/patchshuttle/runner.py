@@ -197,7 +197,7 @@ def acquire_workspace_lock(workspace: Workspace) -> Iterator[None]:
             "workspace lock file is missing, unsafe, or unreadable",
             path="patches/state/run.lock",
         ) from exc
-    lock = FileLock(lock_path, timeout=0)
+    lock = FileLock(lock_path, timeout=0, preserve_lock_file=True)
     try:
         with lock.acquire(timeout=0):
             yield

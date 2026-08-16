@@ -67,6 +67,7 @@ def test_change_transaction_applies_all_text_actions_from_final_plan(
     notes.write_bytes(notes_original)
     diff_target.write_bytes(diff_original)
     module.chmod(0o640)
+    module_mode = stat.S_IMODE(module.stat().st_mode)
     diff = """\
 --- a/diff.txt
 +++ b/diff.txt
@@ -129,7 +130,7 @@ def test_change_transaction_applies_all_text_actions_from_final_plan(
     assert notes.read_bytes() == b"header\nanchor\n"
     assert diff_target.read_bytes() == b"new\n"
     assert (workspace.root / "src/generated.txt").read_bytes() == b"generated\n"
-    assert stat.S_IMODE(module.stat().st_mode) == 0o640
+    assert stat.S_IMODE(module.stat().st_mode) == module_mode
 
     backup_root = manifest_path(workspace).parent
     assert (backup_root / "originals/module.py").read_bytes() == module_original
@@ -153,7 +154,7 @@ def test_change_transaction_applies_all_text_actions_from_final_plan(
         "encoding": "utf-8",
         "kind": "file",
         "newline": "lf",
-        "original_mode": 0o640,
+        "original_mode": module_mode,
         "original_sha256": hashlib.sha256(module_original).hexdigest(),
         "original_size": len(module_original),
         "original_state": "PRESENT",
@@ -200,7 +201,10 @@ def test_second_modify_failure_restores_first_from_prepared_originals(
     first.write_text("old one\n", encoding="utf-8")
     second.write_text("old two\n", encoding="utf-8")
     first.chmod(0o600)
-    second.chmod(0o640)
+    first_mode = stat.S_IMODE(first.stat().st_mode)
+    second.chmod(0o444 if first_mode != 0o444 else 0o666)
+    second_mode = stat.S_IMODE(second.stat().st_mode)
+    assert second_mode != first_mode
     plan = make_plan(
         workspace,
         [
@@ -242,10 +246,11 @@ def test_second_modify_failure_restores_first_from_prepared_originals(
     assert caught.value.rollback_succeeded is True
     assert first.read_text("utf-8") == "old one\n"
     assert second.read_text("utf-8") == "old two\n"
-    assert stat.S_IMODE(first.stat().st_mode) == 0o600
-    assert stat.S_IMODE(second.stat().st_mode) == 0o640
+    assert stat.S_IMODE(first.stat().st_mode) == first_mode
+    assert stat.S_IMODE(second.stat().st_mode) == second_mode
     manifest = json.loads(manifest_path(workspace).read_text("utf-8"))
     assert manifest["status"] == "ROLLED_BACK"
+    second.chmod(first_mode)
 
 
 @pytest.mark.parametrize(

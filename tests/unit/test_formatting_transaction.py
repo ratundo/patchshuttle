@@ -78,11 +78,9 @@ def test_success_runs_isort_black_then_final_checks_and_retains_hashes(
     workspace: Workspace,
 ) -> None:
     target = workspace.root / "module.py"
-    target.write_text(
-        "import sys\nimport os\n\nVALUES=[1,2,3]\n",
-        encoding="utf-8",
-    )
+    target.write_bytes(b"import sys\nimport os\n\nVALUES=[1,2,3]\n")
     target.chmod(0o744)
+    mode = stat.S_IMODE(target.stat().st_mode)
     plan = patch_plan(
         workspace,
         actions=[
@@ -114,7 +112,7 @@ def test_success_runs_isort_black_then_final_checks_and_retains_hashes(
         == hashlib.sha256(expected.encode("utf-8")).hexdigest()
     )
     assert target.read_text("utf-8") == expected
-    assert stat.S_IMODE(target.stat().st_mode) == 0o744
+    assert stat.S_IMODE(target.stat().st_mode) == mode
     assert manifest(workspace)["status"] == "COMPLETED"
 
 
@@ -164,7 +162,7 @@ def test_formatter_failure_rolls_back_and_retains_process_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = workspace.root / "module.py"
-    target.write_text("VALUE=1\n", encoding="utf-8")
+    target.write_bytes(b"VALUE=1\n")
     plan = patch_plan(
         workspace,
         actions=[
@@ -212,7 +210,7 @@ def test_invalid_formatter_post_state_rolls_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = workspace.root / "module.py"
-    target.write_text("VALUE=1\n", encoding="utf-8")
+    target.write_bytes(b"VALUE=1\n")
     plan = patch_plan(
         workspace,
         actions=[
@@ -257,7 +255,7 @@ def test_formatter_preparation_error_rolls_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = workspace.root / "module.py"
-    target.write_text("VALUE=1\n", encoding="utf-8")
+    target.write_bytes(b"VALUE=1\n")
     plan = patch_plan(
         workspace,
         actions=[
@@ -293,7 +291,7 @@ def test_formatter_cannot_change_declared_non_python_target(
 ) -> None:
     python_target = workspace.root / "module.py"
     text_target = workspace.root / "notes.txt"
-    python_target.write_text("VALUE=1\n", encoding="utf-8")
+    python_target.write_bytes(b"VALUE=1\n")
     text_target.write_text("old\n", encoding="utf-8")
     plan = patch_plan(
         workspace,
@@ -394,7 +392,7 @@ def test_final_check_mutation_of_formatted_target_is_rejected(
         ),
     )
     target = workspace.root / "module.py"
-    target.write_text("VALUE=1\n", encoding="utf-8")
+    target.write_bytes(b"VALUE=1\n")
     plan = patch_plan(
         workspace,
         actions=[

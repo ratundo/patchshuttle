@@ -32,6 +32,14 @@ First release candidate prepared for external CI and TestPyPI qualification.
   bounded inputs and outputs, non-shell subprocess execution, and best-effort
   log redaction.
 
+### Fixed
+
+- Python 3.10 TOML compatibility in package and index-smoke checks.
+- Windows inventory capture when path metadata does not expose stable inode
+  identifiers.
+- Persistent cross-platform workspace locking with `filelock` native locks.
+- Platform-neutral subprocess newlines and portable filesystem test fixtures.
+
 ### Qualification status
 
 - Local Linux/Python 3.12 verification is complete.

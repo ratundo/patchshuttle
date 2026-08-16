@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import stat
 import sys
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path, PurePosixPath
@@ -212,8 +213,9 @@ def test_non_python_plan_has_no_formatter_commands(workspace: Workspace) -> None
 
 def test_capture_and_verify_formatted_file_state(workspace: Workspace) -> None:
     target = workspace.root / "module.py"
-    target.write_text("VALUE=1\n", encoding="utf-8")
+    target.write_bytes(b"VALUE=1\n")
     target.chmod(0o744)
+    mode = stat.S_IMODE(target.stat().st_mode)
     job = Job(
         protocol=1,
         project_id=PROJECT_ID,
@@ -239,7 +241,7 @@ def test_capture_and_verify_formatted_file_state(workspace: Workspace) -> None:
     assert captured[0].path == PurePosixPath("module.py")
     assert captured[0].size == len(b"VALUE=2\n")
     assert captured[0].sha256 == hashlib.sha256(b"VALUE=2\n").hexdigest()
-    assert captured[0].mode == 0o744
+    assert captured[0].mode == mode
     verify_formatted_files(plan, captured)
 
     target.write_text("VALUE = 3\n", encoding="utf-8")

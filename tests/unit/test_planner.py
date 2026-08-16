@@ -708,7 +708,7 @@ def test_exact_edit_actions_are_dry_run_in_memory(
     expected: str,
 ) -> None:
     target = workspace.root / "module.py"
-    target.write_text("VALUE = 1\n", encoding="utf-8")
+    target.write_bytes(b"VALUE = 1\n")
     job = make_job(
         actions=[{name: {"path": "module.py", **parameters}}],
         checks=[{"compileall": {"paths": ["module.py"]}}],
@@ -995,8 +995,8 @@ def test_binary_oversized_and_mixed_newline_modification_targets_are_rejected(
 
 
 def test_valid_unified_diff_is_dry_run_for_multiple_files(workspace: Workspace) -> None:
-    (workspace.root / "one.txt").write_text("old one\n", encoding="utf-8")
-    (workspace.root / "two.txt").write_text("old two\n", encoding="utf-8")
+    (workspace.root / "one.txt").write_bytes(b"old one\n")
+    (workspace.root / "two.txt").write_bytes(b"old two\n")
     diff = """\
 --- a/one.txt
 +++ b/one.txt

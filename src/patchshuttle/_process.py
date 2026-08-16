@@ -149,7 +149,8 @@ def _read_stream(stream: BinaryIO, maximum: int) -> tuple[str, bool]:
 
 def _bounded_text(raw: bytes, maximum: int) -> tuple[str, bool]:
     truncated = len(raw) > maximum
-    return raw[:maximum].decode("utf-8", errors="replace"), truncated
+    text = raw[:maximum].decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n"), truncated
 
 
 def _process_group_options() -> dict[str, object]:

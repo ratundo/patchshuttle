@@ -199,7 +199,7 @@ def test_no_change_transaction_does_not_launch_initial_checks(
     workspace: Workspace,
 ) -> None:
     target = workspace.root / "same.txt"
-    target.write_text("same\n", encoding="utf-8")
+    target.write_bytes(b"same\n")
     plan = patch_plan(
         workspace,
         actions=[{"create_file": {"path": "same.txt", "content": "same\n"}}],

@@ -11,7 +11,10 @@ import time
 import venv
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib  # type: ignore[no-redef]
 
 _INDEXES = {
     "pypi": "https://pypi.org/simple/",
