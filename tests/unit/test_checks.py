@@ -453,6 +453,36 @@ def test_process_termination_escalates_and_tolerates_signal_errors(
     assert operations == ["terminate", "kill"]
 
 
+def test_posix_signal_path_uses_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operations: list[tuple[int, int]] = []
+
+    class Process:
+        pid = 12345
+
+        def terminate(self):
+            raise AssertionError("direct termination must not be used")
+
+        def kill(self):
+            raise AssertionError("direct kill must not be used")
+
+    monkeypatch.setattr(process_module.os, "name", "posix")
+    monkeypatch.setattr(process_module.signal, "SIGTERM", 15, raising=False)
+    monkeypatch.setattr(process_module.signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(
+        process_module.os,
+        "killpg",
+        lambda pid, selected: operations.append((pid, selected)),
+        raising=False,
+    )
+
+    process_module._signal_process(Process(), force=False)
+    process_module._signal_process(Process(), force=True)
+
+    assert operations == [(12345, 15), (12345, 9)]
+
+
 def test_windows_signal_path_uses_direct_process_operation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
