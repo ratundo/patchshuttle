@@ -109,7 +109,7 @@ def test_success_runs_isort_black_then_final_checks_and_retains_hashes(
     assert len(result.formatted_files) == 1
     assert (
         result.formatted_files[0].sha256
-        == hashlib.sha256(expected.encode("utf-8")).hexdigest()
+        == hashlib.sha256(target.read_bytes()).hexdigest()
     )
     assert target.read_text("utf-8") == expected
     assert stat.S_IMODE(target.stat().st_mode) == mode

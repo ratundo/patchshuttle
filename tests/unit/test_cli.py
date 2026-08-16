@@ -795,7 +795,7 @@ def test_run_no_change_reports_inventory_not_applicable(
     monkeypatch,
 ) -> None:
     initialize_project(tmp_path, monkeypatch)
-    (tmp_path / "same.txt").write_text("same\n", encoding="utf-8")
+    (tmp_path / "same.txt").write_bytes(b"same\n")
     path = write_job(
         tmp_path,
         """\

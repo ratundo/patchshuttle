@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -108,7 +108,7 @@ def test_existing_project_api_yaml_audit_patch_verify_and_rollback(
     assert create_handoff(workspace).path.is_file()
 
     rolled_back = rollback_job(workspace, loaded.id, approved=True)
-    assert rolled_back.restored_files == (Path("module.py"),)
+    assert rolled_back.restored_files == (PurePosixPath("module.py"),)
     assert target.read_text("utf-8") == "VALUE = 1\n"
 
 

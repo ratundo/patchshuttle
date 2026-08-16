@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import socket
+import stat
 from dataclasses import FrozenInstanceError
 from pathlib import Path, PurePosixPath
 
@@ -378,6 +379,30 @@ def test_named_pipe_is_rejected(workspace: Workspace) -> None:
     assert caught.value.code is PolicyErrorCode.PATH_SPECIAL_FILE
 
 
+def test_special_file_classification_is_portable(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = workspace.root / "special"
+    target.write_bytes(b"placeholder")
+    real_lstat = Path.lstat
+
+    class SpecialMetadata:
+        st_mode = stat.S_IFIFO | 0o600
+
+    def special_lstat(path: Path):
+        if path == target:
+            return SpecialMetadata()
+        return real_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", special_lstat)
+
+    with pytest.raises(PolicyError) as caught:
+        Policy(workspace)._inspect(PurePosixPath("special"))  # noqa: SLF001
+
+    assert caught.value.code is PolicyErrorCode.PATH_SPECIAL_FILE
+
+
 def test_unix_socket_is_rejected(workspace: Workspace) -> None:
     if not hasattr(socket, "AF_UNIX"):
         pytest.skip("Unix sockets are unavailable")
@@ -489,9 +514,11 @@ def test_case_insensitive_boundary_comparison_is_supported(
     target = workspace.root / "Source.py"
     target.write_text("pass\n", encoding="utf-8")
 
-    result = Policy(workspace, case_sensitive=False).resolve("Source.py")
+    insensitive = Policy(workspace, case_sensitive=False).resolve("Source.py")
+    sensitive = Policy(workspace, case_sensitive=True).resolve("Source.py")
 
-    assert result.absolute == target
+    assert insensitive.absolute == target
+    assert sensitive.absolute == target
 
 
 def test_incompatible_resolved_paths_are_outside_the_workspace(

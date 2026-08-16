@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import stat
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
@@ -666,7 +667,20 @@ def test_manual_rollback_preflight_maps_modes_types_and_inspection_errors(
     directory_entry = next(
         entry for entry in loaded.entries if entry.path == PurePosixPath("created")
     )
-    (workspace.root / "created").chmod(directory_entry.applied_mode)
+    wrong_type_path = workspace.root / "created"
+    wrong_type_path.chmod(directory_entry.applied_mode)
+    real_lstat = Path.lstat
+
+    class RegularMetadata:
+        st_mode = stat.S_IFREG | directory_entry.applied_mode
+
+    def regular_lstat(path: Path):
+        if path == wrong_type_path:
+            return RegularMetadata()
+        return real_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", regular_lstat)
+
     with pytest.raises(ExecutionError) as wrong_type:
         rollback_module._preflight_manual_rollback(workspace, loaded)
     assert wrong_type.value.path == "created"

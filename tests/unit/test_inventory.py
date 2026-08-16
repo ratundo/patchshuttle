@@ -138,6 +138,45 @@ def test_capture_records_symlinks_and_special_files_without_following(
     assert by_path[PurePosixPath("events.fifo")].sha256 is None
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    (
+        (stat.S_IFLNK | 0o777, InventoryEntryKind.SYMLINK),
+        (stat.S_IFIFO | 0o600, InventoryEntryKind.OTHER),
+    ),
+)
+def test_entry_kind_classifies_non_regular_modes_portably(
+    mode: int,
+    expected: InventoryEntryKind,
+) -> None:
+    assert inventory_module._entry_kind(mode) is expected  # noqa: SLF001
+
+
+def test_capture_retains_non_regular_entries_without_hashing(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = workspace.root / "special.bin"
+    target.write_bytes(b"not hashed")
+    real_entry_kind = inventory_module._entry_kind
+
+    def classify_regular_files_as_other(mode: int) -> InventoryEntryKind:
+        if stat.S_ISREG(mode):
+            return InventoryEntryKind.OTHER
+        return real_entry_kind(mode)
+
+    monkeypatch.setattr(
+        inventory_module, "_entry_kind", classify_regular_files_as_other
+    )
+
+    result = capture_inventory(workspace)
+    recorded = next(item for item in result.entries if item.path.name == target.name)
+
+    assert recorded.kind is InventoryEntryKind.OTHER
+    assert recorded.sha256 is None
+    assert result.hashed_bytes == 0
+
+
 def test_capture_enforces_entry_and_total_hash_byte_limits(
     workspace: Workspace,
 ) -> None:

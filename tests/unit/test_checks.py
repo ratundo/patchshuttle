@@ -439,6 +439,8 @@ def test_process_termination_escalates_and_tolerates_signal_errors(
             operations.append("kill")
 
     monkeypatch.setattr(checks_module.os, "name", "posix")
+    monkeypatch.setattr(process_module.signal, "SIGTERM", 15, raising=False)
+    monkeypatch.setattr(process_module.signal, "SIGKILL", 9, raising=False)
     monkeypatch.setattr(
         checks_module.os,
         "killpg",
