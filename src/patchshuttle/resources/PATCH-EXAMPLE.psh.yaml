@@ -1,0 +1,17 @@
+protocol: 1
+project_id: {{PROJECT_ID}}
+id: PATCH-EXAMPLE
+kind: patch
+title: Create a small Python package
+actions:
+  - create_directory:
+      path: src/example
+  - create_file:
+      path: src/example/__init__.py
+      content: |
+        """Example package created through a PatchShuttle job."""
+
+        VALUE = 1
+checks:
+  - compileall:
+      paths: [src]

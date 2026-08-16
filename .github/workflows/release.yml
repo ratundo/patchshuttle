@@ -1,0 +1,83 @@
+name: Release to PyPI
+
+"on":
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Require tag and source version to match
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python tools/check_tag.py "$RELEASE_TAG"
+      - name: Test, build, and validate distributions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m isort --check-only src tests tools
+          python -m black --check src tests tools
+          python -m coverage erase
+          python -m coverage run -m pytest -q
+          python -m coverage report --fail-under=100
+          python -m build
+          python -m twine check dist/*
+          python tools/release_checks.py dist
+      - name: Smoke-test wheel
+        env:
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        run: >-
+          python tools/wheel_smoke.py dist/*.whl
+          --version "${RELEASE_VERSION#v}"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: patchshuttle-release-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: patchshuttle-release-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install exact PyPI release and run smoke test
+        env:
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        run: python tools/index_smoke.py pypi --version "${RELEASE_VERSION#v}"

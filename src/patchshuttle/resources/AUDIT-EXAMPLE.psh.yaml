@@ -1,0 +1,10 @@
+protocol: 1
+project_id: {{PROJECT_ID}}
+id: AUDIT-EXAMPLE
+kind: audit
+title: Inspect the initial project structure
+actions:
+  - tree:
+      path: .
+      depth: 4
+  - environment: {}
