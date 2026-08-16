@@ -7,10 +7,10 @@
 > including audit/patch/verify workflows, guarded manual rollback, explicit
 > keep-changes handling, snapshot/handoff generation, declarative Python
 > constructors, integration and end-to-end scenarios, release validation, and
-> Trusted Publishing workflows; verified locally on Linux with Python 3.12.13:
-> 664 tests passed, one platform-only test skipped, statement and branch
-> coverage 100%. The required GitHub-hosted Ubuntu/Windows matrix and TestPyPI
-> installation remain external gates and are not recorded as passed.  
+> Trusted Publishing workflows; verified locally on Linux with Python 3.10 and
+> 3.12: 671 tests passed, one environment-only test skipped, statement and
+> branch coverage 100%. The required GitHub-hosted Ubuntu/Windows matrix passed
+> on 2026-08-16. TestPyPI installation remains the next external gate.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -1501,7 +1501,7 @@ has been tested through a documented end-to-end scenario.
 - checks;
 - isort and Black;
 - rollback;
-- Windows and Ubuntu workflow matrix prepared, external run pending;
+- Windows and Ubuntu workflow matrix passed on 2026-08-16;
 - TestPyPI Trusted Publishing workflow prepared, external run pending.
 
 ### `0.1.0b1`
@@ -1557,13 +1557,13 @@ PatchShuttle v0.1.0 is ready when all of the following are demonstrated:
 
 ### Current qualification record
 
-As of 2026-08-13, criteria 2 through 16 have local automated coverage. The
-clean built wheel also installs and completes an isolated public-workflow smoke
-test, but criterion 1 is not fully closed until installation from the intended
-package index succeeds. Criteria 17 and 18 require the published GitHub
-repository and package-index infrastructure and remain pending. Therefore
-`0.1.0a2` is a release candidate ready for GitHub CI and TestPyPI qualification,
-not a completed stable `0.1.0` release.
+As of 2026-08-16, criteria 2 through 16 have local automated coverage, and the
+required GitHub-hosted matrix closes criterion 17. The clean built wheel also
+installs and completes an isolated public-workflow smoke test, but criterion 1
+is not fully closed until installation from the intended package index
+succeeds. Criterion 18 remains pending. Therefore `0.1.0a2` is a release
+candidate ready for TestPyPI qualification, not a completed stable `0.1.0`
+release.
 
 ## 33. Fixed decisions for implementation
 

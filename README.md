@@ -14,9 +14,9 @@ records the result for the next iteration.
 > Completed patches support guarded manual rollback. Timestamped fixed-section
 > logs, exact job archives, registry idempotency, project snapshots, AI
 > handoffs, declarative Python constructors, release checks, and Trusted
-> Publishing workflows are implemented. Local Linux qualification is complete;
-> the required GitHub-hosted Windows/Ubuntu matrix and TestPyPI installation
-> remain external release gates.
+> Publishing workflows are implemented. Local qualification and the required
+> GitHub-hosted Windows/Ubuntu matrix are complete. TestPyPI installation
+> remains the next external release gate.
 
 ## Design goals
 
@@ -474,9 +474,10 @@ python tools/wheel_smoke.py dist/patchshuttle-0.1.0a2-py3-none-any.whl --version
 
 The release candidate includes GitHub Actions for the required Ubuntu and
 Windows compatibility matrix, TestPyPI qualification, and PyPI Trusted
-Publishing. Follow [docs/RELEASE.md](docs/RELEASE.md) in order. Do not treat
-local Linux results as proof that the external matrix or package indexes
-passed.
+Publishing. The required GitHub-hosted matrix first passed on 2026-08-16.
+Follow [docs/RELEASE.md](docs/RELEASE.md) in order, rerun CI after every
+release-candidate change, and do not treat CI as proof that either package
+index passed.
 
 ## Manual workflow
 

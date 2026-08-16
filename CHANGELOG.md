@@ -42,9 +42,11 @@ First release candidate prepared for external CI and TestPyPI qualification.
 
 ### Qualification status
 
-- Local Linux/Python 3.12 verification is complete.
-- The GitHub-hosted compatibility matrix and TestPyPI installation remain
-  external release gates and are not claimed as passed in this source tree.
+- Local Linux/Python 3.10 and 3.12 verification is complete with 100% statement
+  and branch coverage.
+- The required GitHub-hosted Ubuntu/Python 3.10, 3.12, and 3.14 plus
+  Windows/Python 3.12 and 3.14 matrix passed on 2026-08-16.
+- TestPyPI installation remains the next external release gate.
 
 ## 0.1.0a1 - 2026-08-06
 
