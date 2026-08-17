@@ -96,7 +96,10 @@ def test_rollback_preserves_wrong_types_symlinks_and_nonempty_directories(
         encoding="utf-8",
     )
     (workspace.root / "real.txt").write_text("real\n", encoding="utf-8")
-    (workspace.root / "linked.txt").symlink_to(workspace.root / "real.txt")
+    try:
+        (workspace.root / "linked.txt").symlink_to(workspace.root / "real.txt")
+    except OSError:
+        pytest.skip("symbolic links are unavailable")
 
     result = rollback_created(
         workspace,
@@ -238,7 +241,10 @@ def test_transaction_rollback_rejects_nonregular_original_copy(
     if replacement_kind == "directory":
         original.mkdir()
     else:
-        original.symlink_to(workspace.root / "existing.txt")
+        try:
+            original.symlink_to(workspace.root / "existing.txt")
+        except OSError:
+            pytest.skip("symbolic links are unavailable")
 
     result = rollback_transaction(
         workspace,

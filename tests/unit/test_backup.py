@@ -115,7 +115,10 @@ def test_prepare_backup_rejects_symlinked_internal_directory(
 ) -> None:
     backups = workspace.root / "patches/backups"
     backups.rmdir()
-    backups.symlink_to(tmp_path / "outside", target_is_directory=True)
+    try:
+        backups.symlink_to(tmp_path / "outside", target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links are unavailable")
     plan = create_plan(workspace)
 
     with pytest.raises(ExecutionError) as caught:

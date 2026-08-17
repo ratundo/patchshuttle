@@ -1,8 +1,52 @@
 # PatchShuttle release guide
 
-This guide publishes the `0.1.0a2` alpha release candidate through GitHub
-Actions and PyPI Trusted Publishing. Do not publish a stable `0.1.0` release
-until every acceptance criterion in `SPEC_V0_1.md` has passed.
+This guide records the published `0.1.0a2` alpha release and describes the
+GitHub Actions and PyPI Trusted Publishing procedure for future releases. Do
+not publish a stable `0.1.0` release until every acceptance criterion in
+`SPEC_V0_1.md` has passed and the stable release is approved.
+
+## 0. Recorded `0.1.0a2` qualification
+
+The immutable `0.1.0a2` artifacts were built from commit
+`29565522c2c65fa0ecfb9234403e6220d1721c37` and passed these external gates:
+
+- [required GitHub-hosted CI matrix](https://github.com/ratundo/patchshuttle/actions/runs/31969439894);
+- [TestPyPI publication and clean index installation](https://github.com/ratundo/patchshuttle/actions/runs/31968375793);
+- [GitHub `v0.1.0a2` pre-release](https://github.com/ratundo/patchshuttle/releases/tag/v0.1.0a2);
+- [production PyPI Trusted Publishing workflow](https://github.com/ratundo/patchshuttle/actions/runs/31969527644);
+- [production PyPI project](https://pypi.org/project/patchshuttle/0.1.0a2/)
+  and a clean post-release installation smoke test.
+
+TestPyPI and production PyPI received byte-identical distributions:
+
+- wheel `patchshuttle-0.1.0a2-py3-none-any.whl` SHA-256:
+  `debf664d9ffc1f2763d55fcb0fb4bb47b226ad5b40aa1bf099ce0ab9c6c0c2e6`;
+- source archive `patchshuttle-0.1.0a2.tar.gz` SHA-256:
+  `1ae7f233a674704a49f186ef1842e490f10f9814701f712aabed9d16ebe5164c`.
+
+### ChatGPT end-to-end record
+
+On 2026-08-17, a Windows 11 workspace running CPython 3.14.2 and the published
+PatchShuttle 0.1.0a2 package completed this ChatGPT-guided sequence:
+
+- `AUDIT-001`, job SHA-256
+  `c773d787275a11bae2832172782d554caf3b4e1b3bad856715e00d195ce79488`:
+  bounded inspection completed without workspace changes;
+- `PATCH-001`, job SHA-256
+  `17a0a4996cfd796649f9efa4fe03b288658d35a7d636bf56e88a286e7e0a34c7`:
+  created a small Python module, three unit tests, and project documentation;
+  compileall, unittest, and import checks passed before and after scoped isort
+  and Black formatting;
+- `VERIFY-001`, job SHA-256
+  `2e2ead1826f80044190d55c4a07f212b789d9b5b7aa57b21a9143ab4e88b25eb`:
+  independently repeated compileall, the three unit tests, and the import
+  check without declared changes.
+
+All three jobs completed with passing workspace comparisons. This is the
+evidence behind **Tested with ChatGPT** for the recorded audit, patch,
+formatting, repeated-check, and independent verification workflow. It does not
+cover every supported action, intentional failure or rollback path, AI model,
+or project.
 
 ## 1. Local release gate
 
@@ -97,5 +141,7 @@ On Windows, use `release-check\Scripts\python.exe` and
 
 Record links to the GitHub release, CI run, TestPyPI run, production PyPI
 project, and post-release smoke result. Only then mark the corresponding
-external acceptance gates complete. The phrase `Tested with ChatGPT` requires
-a separate recorded ChatGPT end-to-end workflow using the released protocol.
+external acceptance gates complete. Section 0 contains that record for
+`0.1.0a2`; future releases require their own evidence. A `Tested with ChatGPT`
+statement also requires a separate recorded ChatGPT end-to-end workflow using
+that released protocol and must state the tested scope.

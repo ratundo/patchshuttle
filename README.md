@@ -6,17 +6,18 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. The current `0.1.0a2` release candidate
-> implements the complete local v0.1 workflow. It executes bounded read-only audits,
-> approved patch transactions, and approved one-pass verification jobs under a
-> project lock. Patch jobs retain backups, run controlled checks, apply scoped
-> isort then Black, repeat checks, and compare SHA-256 workspace inventories.
-> Completed patches support guarded manual rollback. Timestamped fixed-section
-> logs, exact job archives, registry idempotency, project snapshots, AI
-> handoffs, declarative Python constructors, release checks, and Trusted
-> Publishing workflows are implemented. Local qualification and the required
-> GitHub-hosted Windows/Ubuntu matrix are complete. TestPyPI installation
-> remains the next external release gate.
+> PatchShuttle is alpha software. The published `0.1.0a2` pre-release
+> implements the complete local v0.1 workflow. It executes bounded read-only
+> audits, approved patch transactions, and approved one-pass verification jobs
+> under a project lock. Patch jobs retain backups, run controlled checks, apply
+> scoped isort then Black, repeat checks, and compare SHA-256 workspace
+> inventories. Completed patches support guarded manual rollback. Timestamped
+> fixed-section logs, exact job archives, registry idempotency, project
+> snapshots, AI handoffs, declarative Python constructors, release checks, and
+> Trusted Publishing workflows are implemented. Local qualification, the
+> required GitHub-hosted Windows/Ubuntu matrix, TestPyPI qualification,
+> production PyPI publication, and a post-release smoke installation are
+> complete. A documented ChatGPT end-to-end workflow passed on 2026-08-17.
 
 ## Design goals
 
@@ -29,13 +30,19 @@ records the result for the next iteration.
 PatchShuttle is not a security sandbox. Project tests and AI-generated project
 code can execute arbitrary behavior with the current user's permissions.
 
-## Install the development build
+## Install
 
-PatchShuttle has not been published to PyPI yet. From a local checkout:
+Install the exact published alpha release from PyPI:
 
 ```bash
 python -m venv .venv
 python -m pip install --upgrade pip
+python -m pip install "patchshuttle==0.1.0a2"
+```
+
+For development from a local checkout:
+
+```bash
 python -m pip install -e ".[dev]"
 ```
 
@@ -472,12 +479,12 @@ python tools/release_checks.py dist
 python tools/wheel_smoke.py dist/patchshuttle-0.1.0a2-py3-none-any.whl --version 0.1.0a2
 ```
 
-The release candidate includes GitHub Actions for the required Ubuntu and
-Windows compatibility matrix, TestPyPI qualification, and PyPI Trusted
-Publishing. The required GitHub-hosted matrix first passed on 2026-08-16.
-Follow [docs/RELEASE.md](docs/RELEASE.md) in order, rerun CI after every
-release-candidate change, and do not treat CI as proof that either package
-index passed.
+The `0.1.0a2` alpha release passed the required Ubuntu and Windows
+compatibility matrix, TestPyPI qualification, production PyPI Trusted
+Publishing, and a clean post-release installation. The exact release, workflow
+links, artifact hashes, and ChatGPT end-to-end evidence are recorded in
+[docs/RELEASE.md](docs/RELEASE.md). Follow that guide in order for future
+releases and rerun CI after every release-candidate change.
 
 ## Manual workflow
 
@@ -493,8 +500,11 @@ The implemented local cycle is:
 
 See [SPEC_V0_1.md](SPEC_V0_1.md) for the approved product contract and
 [CHANGELOG.md](CHANGELOG.md) for release notes. PatchShuttle is designed for
-ChatGPT and other AI services, but the phrase `Tested with ChatGPT` is reserved
-for a documented end-to-end run using a published protocol build.
+ChatGPT and other AI services. Version `0.1.0a2` is **Tested with ChatGPT** for
+a recorded audit, patch, formatting, repeated-check, and independent
+verification workflow on Windows 11 with Python 3.14.2. This statement applies
+to that documented workflow, not to every supported action, failure path, AI
+model, or project.
 
 ## License
 

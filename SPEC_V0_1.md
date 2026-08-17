@@ -3,14 +3,17 @@
 > Status: Approved for implementation  
 > Specification revision: `0.1-approved.1`  
 > Date: 2026-08-13  
-> Implementation status: Phase 20-21 local release candidate implemented,
+> Implementation status: Phase 20-21 alpha release implemented and published,
 > including audit/patch/verify workflows, guarded manual rollback, explicit
 > keep-changes handling, snapshot/handoff generation, declarative Python
 > constructors, integration and end-to-end scenarios, release validation, and
 > Trusted Publishing workflows; verified locally on Linux with Python 3.10 and
 > 3.12: 671 tests passed, one environment-only test skipped, statement and
 > branch coverage 100%. The required GitHub-hosted Ubuntu/Windows matrix passed
-> on 2026-08-16. TestPyPI installation remains the next external gate.
+> on 2026-08-16, followed by successful TestPyPI qualification, production
+> PyPI publication, and a clean installation smoke test. A recorded ChatGPT
+> end-to-end workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
+> Version `0.1.0a2` remains an alpha pre-release, not stable `0.1.0`.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -1502,7 +1505,9 @@ has been tested through a documented end-to-end scenario.
 - isort and Black;
 - rollback;
 - Windows and Ubuntu workflow matrix passed on 2026-08-16;
-- TestPyPI Trusted Publishing workflow prepared, external run pending.
+- TestPyPI and production PyPI Trusted Publishing completed on 2026-08-16;
+- clean production PyPI installation smoke test completed;
+- recorded ChatGPT end-to-end workflow passed on 2026-08-17.
 
 ### `0.1.0b1`
 
@@ -1518,10 +1523,13 @@ has been tested through a documented end-to-end scenario.
 - clean wheel and source distribution installation;
 - validated README rendering;
 - GitHub release notes;
-- PyPI publication through Trusted Publishing.
+- stable PyPI publication through Trusted Publishing.
 
-The phrase `Tested with ChatGPT` may be added only after a recorded ChatGPT
-end-to-end test passes using the released protocol.
+The phrase `Tested with ChatGPT` was added after a recorded ChatGPT end-to-end
+test passed using the released `0.1.0a2` protocol. The record covers one audit,
+patch, formatting, repeated-check, and independent verification workflow. It
+does not claim that every action, intentional failure or rollback path, AI
+model, or project was tested live with ChatGPT.
 
 ## 32. Acceptance criteria for v0.1.0
 
@@ -1557,13 +1565,14 @@ PatchShuttle v0.1.0 is ready when all of the following are demonstrated:
 
 ### Current qualification record
 
-As of 2026-08-16, criteria 2 through 16 have local automated coverage, and the
-required GitHub-hosted matrix closes criterion 17. The clean built wheel also
-installs and completes an isolated public-workflow smoke test, but criterion 1
-is not fully closed until installation from the intended package index
-succeeds. Criterion 18 remains pending. Therefore `0.1.0a2` is a release
-candidate ready for TestPyPI qualification, not a completed stable `0.1.0`
-release.
+As of 2026-08-17, criteria 2 through 16 have local automated coverage. The
+required GitHub-hosted matrix closes criterion 17, the successful TestPyPI
+workflow closes criterion 18, and a clean installation from production PyPI
+closes criterion 1. All listed v0.1.0 acceptance criteria therefore have
+recorded evidence for the current implementation. Version `0.1.0a2` remains an
+alpha pre-release; no stable `0.1.0` release has been published. The separate
+live ChatGPT record demonstrates the bounded workflow described above and does
+not extend to every action or intentional failure and rollback path.
 
 ## 33. Fixed decisions for implementation
 

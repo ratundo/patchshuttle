@@ -3,9 +3,17 @@
 All notable changes to PatchShuttle are recorded in this file. The project
 uses semantic versioning, including Python-compatible pre-release versions.
 
-## 0.1.0a2 - 2026-08-13
+## Unreleased
 
-First release candidate prepared for external CI and TestPyPI qualification.
+### Fixed
+
+- Symlink-dependent tests now skip consistently when the platform or current
+  process cannot create symbolic links.
+
+## 0.1.0a2 - 2026-08-16
+
+First published alpha release, qualified on TestPyPI and released to production
+PyPI through Trusted Publishing.
 
 ### Added
 
@@ -45,8 +53,25 @@ First release candidate prepared for external CI and TestPyPI qualification.
 - Local Linux/Python 3.10 and 3.12 verification is complete with 100% statement
   and branch coverage.
 - The required GitHub-hosted Ubuntu/Python 3.10, 3.12, and 3.14 plus
-  Windows/Python 3.12 and 3.14 matrix passed on 2026-08-16.
-- TestPyPI installation remains the next external release gate.
+  Windows/Python 3.12 and 3.14
+  [matrix passed](https://github.com/ratundo/patchshuttle/actions/runs/31969439894)
+  on 2026-08-16.
+- The
+  [TestPyPI workflow](https://github.com/ratundo/patchshuttle/actions/runs/31968375793)
+  and its clean index installation passed before production publication.
+- The
+  [production workflow](https://github.com/ratundo/patchshuttle/actions/runs/31969527644),
+  [GitHub pre-release](https://github.com/ratundo/patchshuttle/releases/tag/v0.1.0a2),
+  and [PyPI publication](https://pypi.org/project/patchshuttle/0.1.0a2/)
+  completed on 2026-08-16, followed by a clean installation smoke test.
+- TestPyPI and PyPI received byte-identical files. The wheel SHA-256 is
+  `debf664d9ffc1f2763d55fcb0fb4bb47b226ad5b40aa1bf099ce0ab9c6c0c2e6` and
+  the source archive SHA-256 is
+  `1ae7f233a674704a49f186ef1842e490f10f9814701f712aabed9d16ebe5164c`.
+- A recorded ChatGPT audit, patch, formatting, repeated-check, and independent
+  verification workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
+  See [the release record](docs/RELEASE.md#chatgpt-end-to-end-record) for its
+  scope and job hashes.
 
 ## 0.1.0a1 - 2026-08-06
 
