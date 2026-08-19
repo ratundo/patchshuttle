@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -199,14 +200,16 @@ def _run_check(
     *,
     maximum_output_bytes: int,
 ) -> CheckResult:
-    process = run_process(
-        ProcessCommand(
-            argv=check.argv,
-            working_directory=check.working_directory,
-            timeout_seconds=check.timeout_seconds,
-        ),
-        maximum_output_bytes=maximum_output_bytes,
-    )
+    with tempfile.TemporaryDirectory(prefix="patchshuttle-pycache-") as cache:
+        process = run_process(
+            ProcessCommand(
+                argv=check.argv,
+                working_directory=check.working_directory,
+                timeout_seconds=check.timeout_seconds,
+                environment_overrides=(("PYTHONPYCACHEPREFIX", cache),),
+            ),
+            maximum_output_bytes=maximum_output_bytes,
+        )
     return CheckResult(
         id=check.id,
         name=check.name,

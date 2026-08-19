@@ -19,6 +19,7 @@ from patchshuttle.checks import CheckResult
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, JobError
 from patchshuttle.formatters import FormattedFileState, FormatterResult
 from patchshuttle.inventory import WorkspaceComparison
+from patchshuttle.linters import HtmlLintResult
 from patchshuttle.logging import (
     RunClock,
     RunLogData,
@@ -67,6 +68,7 @@ class RunResult:
     created_files: tuple[PurePosixPath, ...]
     created_directories: tuple[PurePosixPath, ...]
     modified_files: tuple[PurePosixPath, ...] = ()
+    html_lint_results: tuple[HtmlLintResult, ...] = ()
     initial_checks: tuple[CheckResult, ...] = ()
     formatting_results: tuple[FormatterResult, ...] = ()
     formatted_files: tuple[FormattedFileState, ...] = ()
@@ -339,7 +341,10 @@ def execution_exit_code(code: ExecutionErrorCode) -> int:
         ExecutionErrorCode.JOB_NOT_FOUND,
     }:
         return 3
-    if code is ExecutionErrorCode.CHECK_FAILED:
+    if code in {
+        ExecutionErrorCode.CHECK_FAILED,
+        ExecutionErrorCode.HTML_LINT_FAILED,
+    }:
         return 6
     if code is ExecutionErrorCode.FORMAT_FAILED:
         return 7
@@ -480,6 +485,9 @@ def _public_result(
             transaction.created_directories if transaction is not None else ()
         ),
         modified_files=(transaction.modified_files if transaction is not None else ()),
+        html_lint_results=(
+            transaction.html_lint_results if transaction is not None else ()
+        ),
         initial_checks=(
             transaction.initial_checks
             if transaction is not None
@@ -617,6 +625,8 @@ def _failure_stage(error: ExecutionError, plan: Plan | None) -> str:
         if plan is not None and len(error.check_results) > len(plan.checks):
             return "FINAL_CHECKS"
         return "INITIAL_CHECKS"
+    if root is ExecutionErrorCode.HTML_LINT_FAILED:
+        return "LINT_HTML"
     if root is ExecutionErrorCode.FORMAT_FAILED:
         return "FORMAT_BLACK" if error.path == "black" else "FORMAT_ISORT"
     if root in {

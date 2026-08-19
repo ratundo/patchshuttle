@@ -53,6 +53,20 @@ def _parse_metadata(raw: bytes, *, label: str):
     for field, value in expected.items():
         if metadata[field] != value:
             raise ValueError(f"{label} has unexpected {field}: {metadata[field]!r}")
+    extras = metadata.get_all("Provides-Extra") or []
+    if "html" not in extras:
+        raise ValueError(f"{label} does not declare the html extra")
+    requirements = metadata.get_all("Requires-Dist") or []
+    html_requirements = [
+        value.casefold()
+        for value in requirements
+        if value.casefold().startswith("djlint")
+    ]
+    if not html_requirements or not any(
+        'extra == "html"' in value or "extra == 'html'" in value
+        for value in html_requirements
+    ):
+        raise ValueError(f"{label} does not bind djLint to the html extra")
     return metadata
 
 

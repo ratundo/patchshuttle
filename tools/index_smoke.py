@@ -25,13 +25,23 @@ _SMOKE = r"""
 from importlib.metadata import version
 from pathlib import Path
 
-from patchshuttle import Job, execute_plan, init_workspace, plan_job
-from patchshuttle.actions import environment
+from patchshuttle import Job, execute_plan, init_workspace, load_workspace, plan_job
+from patchshuttle.actions import create_file, environment
+from patchshuttle.checks import compileall
 
 assert version("patchshuttle") == EXPECTED_VERSION
 root = Path.cwd() / "index-project"
 root.mkdir()
 workspace = init_workspace(root, new_project=True).workspace
+workspace.config_path.write_text(
+    workspace.config_path.read_text("utf-8").replace(
+        "enabled = false",
+        "enabled = true",
+        1,
+    ),
+    encoding="utf-8",
+)
+workspace = load_workspace(root)
 job = Job(
     protocol=1,
     project_id=workspace.project_id,
@@ -42,6 +52,30 @@ job = Job(
 result = execute_plan(plan_job(job, workspace))
 assert result.audit_results[0].status == "COMPLETED"
 assert result.log_path is not None and result.log_path.is_file()
+
+html = Job(
+    protocol=1,
+    project_id=workspace.project_id,
+    id="INDEX-HTML",
+    kind="patch",
+    actions=(
+        create_file(
+            "templates/page.html",
+            '<!doctype html>\n<html lang="en">\n'
+            "  <head>\n"
+            '    <meta name="description" content="Example">\n'
+            "    <title>Example</title>\n"
+            "  </head>\n"
+            "  <body>\n"
+            "    <main>ok</main>\n"
+            "  </body>\n"
+            "</html>\n",
+        ),
+    ),
+    checks=(compileall(("templates",)),),
+)
+html_result = execute_plan(plan_job(html, workspace), approved=True)
+assert html_result.html_lint_results[0].status.value == "PASSED"
 """
 
 
@@ -82,7 +116,7 @@ def _install_release(
         "--no-deps",
         "--index-url",
         index,
-        f"patchshuttle=={version}",
+        f"patchshuttle[html]=={version}",
     ]
     last_error: subprocess.CalledProcessError | None = None
     for attempt in range(1, attempts + 1):
@@ -112,6 +146,7 @@ def smoke_index(
 ) -> None:
     configuration = tomllib.loads((project_root / "pyproject.toml").read_text("utf-8"))
     dependencies = configuration["project"]["dependencies"]
+    html_dependencies = configuration["project"]["optional-dependencies"]["html"]
     with tempfile.TemporaryDirectory(prefix="patchshuttle-index-smoke-") as raw:
         root = Path(raw)
         environment = root / "venv"
@@ -126,6 +161,7 @@ def smoke_index(
                 "--disable-pip-version-check",
                 "--no-input",
                 *dependencies,
+                *html_dependencies,
             ],
             cwd=root,
         )

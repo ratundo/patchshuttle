@@ -64,10 +64,10 @@ name.
 ## Local authority and safety
 
 Jobs cannot change project identity, protected paths, confirmation, backups,
-rollback, formatting order, command allowlists, size limits, or shell policy.
-There is no arbitrary-shell action. Project checks can execute project code with
-the current user's permissions, so PatchShuttle is not an operating-system
-sandbox.
+rollback, formatting order, HTML lint policy, command allowlists, size limits,
+or shell policy. There is no arbitrary-shell action. Project checks can execute
+project code with the current user's permissions, so PatchShuttle is not an
+operating-system sandbox.
 
 All job paths are relative to the workspace root. The implemented planner
 rejects absolute paths, parent traversal, protected or ignored targets,
@@ -76,7 +76,10 @@ configured limits.
 
 Use `patchshuttle validate patches/inbox/JOB.psh.yaml`, then review
 `patchshuttle plan patches/inbox/JOB.psh.yaml`. Planning is read-only and does
-not mean the job was applied. `patchshuttle run JOB.psh.yaml` accepts every job
+not mean the job was applied. Add `--diff` to display a bounded unified preview
+of the final resolved bytes. Exact-count failures include exact line numbers or
+nearby similarity-ranked snippets; unified-diff failures include hunk counts
+and first context mismatches. `patchshuttle run JOB.psh.yaml` accepts every job
 kind. `patchshuttle audit JOB.psh.yaml` requires an audit job and does not
 prompt. `patchshuttle verify JOB.psh.yaml` requires a verify job and, like a
 patch, uses a deny-by-default confirmation unless `--yes` is supplied. The
@@ -87,10 +90,16 @@ combined with `--yes`. It is not a YAML field and local policy may forbid it.
 
 Audit output and traversal are bounded and a workspace comparison verifies
 read-only behavior. Verify jobs run their checks once and record workspace side
-effects. Patch execution includes controlled initial checks, scoped isort then
-Black, repeated final checks, bounded before/after workspace inventory, and
-automatic rollback. Final changes outside declared transaction paths and
-configured ignored paths are reported as `UNEXPECTED_WORKSPACE_CHANGE`.
+effects. Planning requires changed Python files to pass PEP 263 encoding,
+isort, and Black compatibility checks. Patch execution can include locally
+enabled changed-HTML djLint checks, followed by controlled initial checks,
+scoped isort then Black, repeated final checks, bounded before/after workspace
+inventory, and automatic rollback. Final changes outside declared transaction
+paths and configured ignored paths are reported as
+`UNEXPECTED_WORKSPACE_CHANGE`.
+HTML content is passed through stdin from an isolated configuration root;
+project `pyproject.toml`, `djlint.toml`, and `.djlintrc` settings cannot override
+the local PatchShuttle lint profile or ignore list.
 Declared patch paths are rolled back; reported external check side effects are
 not removed automatically. If the user explicitly accepts `--keep-changes`, a
 failed patch retains published declared changes and records

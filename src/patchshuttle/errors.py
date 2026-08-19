@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from patchshuttle.checks import CheckResult
     from patchshuttle.formatters import FormatterResult
     from patchshuttle.inventory import WorkspaceComparison
+    from patchshuttle.linters import HtmlLintResult
 
 
 class JobErrorCode(str, Enum):
@@ -90,6 +91,8 @@ class PlanningErrorCode(str, Enum):
     DIFF_PATH_INVALID = "DIFF_PATH_INVALID"
     DIFF_BINARY_FORBIDDEN = "DIFF_BINARY_FORBIDDEN"
     DIFF_HUNK_MISMATCH = "DIFF_HUNK_MISMATCH"
+    FORMATTER_PREFLIGHT_FAILED = "FORMATTER_PREFLIGHT_FAILED"
+    HTML_LINT_FAILED = "HTML_LINT_FAILED"
     CHECK_PROFILE_NOT_FOUND = "CHECK_PROFILE_NOT_FOUND"
     CHECK_ARGUMENT_INVALID = "CHECK_ARGUMENT_INVALID"
     DEPENDENCY_NOT_AVAILABLE = "DEPENDENCY_NOT_AVAILABLE"
@@ -113,6 +116,7 @@ class ExecutionErrorCode(str, Enum):
     ACTION_FAILED = "ACTION_FAILED"
     CHECK_FAILED = "CHECK_FAILED"
     FORMAT_FAILED = "FORMAT_FAILED"
+    HTML_LINT_FAILED = "HTML_LINT_FAILED"
     WORKSPACE_INVENTORY_FAILED = "WORKSPACE_INVENTORY_FAILED"
     UNEXPECTED_WORKSPACE_CHANGE = "UNEXPECTED_WORKSPACE_CHANGE"
     ROLLBACK_FAILED = "ROLLBACK_FAILED"
@@ -211,21 +215,26 @@ class PlanningError(ValueError):
         *,
         item_id: str | None = None,
         path: str | None = None,
+        details: tuple[str, ...] = (),
     ) -> None:
         self.code = code
         self.message = message
         self.item_id = item_id
         self.path = path
+        self.details = details
         super().__init__(message)
 
     def __str__(self) -> str:
         location = " ".join(value for value in (self.item_id, self.path) if value)
         prefix = f"[{self.code.value}]"
-        return (
+        summary = (
             f"{prefix} {location}: {self.message}"
             if location
             else f"{prefix} {self.message}"
         )
+        if not self.details:
+            return summary
+        return "\n".join((summary, "diagnostics:", *self.details))
 
 
 class ExecutionError(RuntimeError):
@@ -246,6 +255,7 @@ class ExecutionError(RuntimeError):
         check_results: tuple[CheckResult, ...] = (),
         audit_results: tuple[AuditActionResult, ...] = (),
         formatting_results: tuple[FormatterResult, ...] = (),
+        html_lint_results: tuple[HtmlLintResult, ...] = (),
         workspace_comparison: WorkspaceComparison | None = None,
         log_path: Path | None = None,
         archived_job_path: Path | None = None,
@@ -262,6 +272,7 @@ class ExecutionError(RuntimeError):
         self.check_results = check_results
         self.audit_results = audit_results
         self.formatting_results = formatting_results
+        self.html_lint_results = html_lint_results
         self.workspace_comparison = workspace_comparison
         self.log_path = log_path
         self.archived_job_path = archived_job_path

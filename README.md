@@ -46,6 +46,34 @@ For development from a local checkout:
 python -m pip install -e ".[dev]"
 ```
 
+To enable opt-in HTML template linting in the current source tree, install the
+`html` extra as well:
+
+```bash
+python -m pip install -e ".[dev,html]"
+```
+
+The extra installs djLint. HTML linting still remains disabled until the local
+workspace configuration explicitly enables it.
+
+For a newly initialized workspace, edit the generated block in
+`patches/patchshuttle.toml`. For an older workspace that does not yet contain
+the block, append it:
+
+```toml
+[linting.html]
+enabled = true
+tool = "djlint"
+profile = "django"
+scope = "changed_html_files"
+ignore = []
+```
+
+Choose the profile that matches the project: `html`, `django`, `jinja`,
+`nunjucks`, `handlebars`, `liquid`, `golang`, `angular`, `tera`, or `askama`.
+The ignore list accepts explicit djLint rule codes such as `H006`. These values
+are user-owned local policy and cannot be supplied by a job.
+
 Verify the installed CLI:
 
 ```bash
@@ -177,12 +205,16 @@ Plan a validated audit, patch, or verify job without changing the workspace:
 
 ```bash
 patchshuttle plan patches/examples/PATCH-EXAMPLE.psh.yaml
+patchshuttle plan patches/examples/PATCH-EXAMPLE.psh.yaml --diff
 ```
 
 The command displays the normalized job hash, sequential action dispositions,
 files and directories that would be created or modified, requested checks,
-Python formatting scope, protected-path result, backup destination template,
+Python formatting scope, optional HTML lint scope, successful quality
+preflight records, protected-path result, backup destination template,
 rollback policy, and whether later execution will require confirmation.
+`--diff` also prints a bounded unified preview of the final resolved bytes
+without writing them.
 
 Planning performs the complete implemented read-only preflight:
 
@@ -191,12 +223,19 @@ Planning performs the complete implemented read-only preflight:
 - simulates sequential changes in memory, including changes to a file created
   earlier in the same job;
 - checks exact occurrence counts and idempotent `NO_CHANGE` states;
+- reports exact-match line numbers or up to three bounded, similarity-ranked
+  nearby snippets when an occurrence count does not match;
 - parses and dry-runs text-only unified diffs without a shell or external
-  `patch` command;
+  `patch` command, with hunk count and first-context-mismatch diagnostics;
 - rejects binary content, unsupported target encodings, mixed newline styles,
   symbolic links, special files, and file-size violations;
 - validates check paths, the conservative pytest argument allowlist, dotted
   Django labels, local profiles, and required Python modules;
+- detects Python source encodings with the PEP 263 mechanism and requires
+  isort and Black to accept every final planned changed-Python file;
+- when locally enabled, passes every final planned changed `.html` file to
+  djLint through stdin from an isolated temporary configuration root before
+  confirmation;
 - records target fingerprints and computes final bytes and SHA-256 hashes for
   the internal transactional runner.
 
@@ -207,7 +246,7 @@ code `0`.
 The same planner is available from Python:
 
 ```python
-from patchshuttle import discover_workspace, load_job, plan_job
+from patchshuttle import discover_workspace, load_job, plan_job, render_plan_diff
 
 workspace = discover_workspace(".")
 job = load_job(
@@ -219,12 +258,15 @@ plan = plan_job(job, workspace)
 print(plan.job_hash)
 print(plan.files_to_create)
 print(plan.files_to_modify)
+print(render_plan_diff(plan).text)
 ```
 
 `Plan`, its actions, checks, fingerprints, and final file changes are immutable.
 Planning does not create target directories or files, execute audits or checks,
-run formatters, create backups or logs, or alter registry state. A successful
-plan therefore does not mean that the job was applied.
+write formatter or linter output, create backups or logs, or alter registry
+state. It may invoke formatter libraries and the optional HTML linter against
+in-memory final content for compatibility preflight. A successful plan
+therefore does not mean that the job was applied.
 
 ## Execute jobs
 
@@ -312,27 +354,30 @@ For a supported plan, the implemented sequence is:
 6. stage modified-file bytes beside the target, flush them, recheck the
    approved original fingerprint, atomically replace the target, preserve its
    mode, and verify exact final bytes and hash;
-7. build fixed argument arrays for every requested check and run them in order
+7. when HTML linting is locally enabled, run djLint in lint-only mode on the
+   exact changed `.html` scope and require it not to modify transaction files;
+8. build fixed argument arrays for every requested check and run them in order
    from the workspace root with `shell=False`, per-check timeout, separate
-   stdout and stderr capture, and local output truncation limits;
-8. stop on the first failed, timed-out, or unstartable initial check and verify
+   stdout and stderr capture, local output truncation limits, and Python
+   bytecode caches redirected to an isolated temporary directory;
+9. stop on the first failed, timed-out, or unstartable initial check and verify
    that the checks did not change any declared transaction file;
-9. capture the approved changed-Python scope, then run isort followed by Black
+10. capture the approved changed-Python scope, then run isort followed by Black
    only on those exact relative paths using the current interpreter in isolated
    mode, fixed argument arrays, `shell=False`, and the same timeout and bounded
    output controls;
-10. stop on formatter failure, reject changes to declared non-Python files,
+11. stop on formatter failure, reject changes to declared non-Python files,
    reject oversized or non-regular formatter targets, and retain the formatted
    bytes, SHA-256 hashes, sizes, and modes;
-11. when configured, repeat the same checks and require every formatted and
+12. when configured, repeat the same checks and require every formatted and
     non-formatted transaction file to retain its exact approved post-state;
-12. capture the final bounded inventory and classify added, removed, modified,
+13. capture the final bounded inventory and classify added, removed, modified,
     and type-changed paths as declared or unexpected;
-13. mark the manifest `COMPLETED`, or restore modified originals and remove
+14. mark the manifest `COMPLETED`, or restore modified originals and remove
     only paths created by this attempt before recording `ROLLED_BACK` or
     `ROLLBACK_FAILED`; an explicitly accepted `--keep-changes` run instead
     records `CHANGES_KEPT` when a failed job published declared changes;
-14. archive the exact CLI source job, write a fixed-section UTF-8 log with a
+15. archive the exact CLI source job, write a fixed-section UTF-8 log with a
    compact AI handoff block, and atomically commit registry state before
    releasing the workspace lock.
 
@@ -345,12 +390,19 @@ does not claim success when a tracked path cannot be restored.
 The internal check runner supports `compileall`, `pytest`, `unittest`, Django
 checks and tests, validated module imports, and locally configured profiles. It
 inherits the current process environment because project checks execute project
-code and PatchShuttle is not an operating-system sandbox. Formatter order is
-fixed to isort then Black for protocol 1; non-Python jobs skip formatting and
-do not repeat checks. Phase 15 revalidates declared transaction files after
-each executable stage and records unrelated final workspace changes. Default
-ignored paths include VCS metadata, virtual environments, dependency trees,
-PatchShuttle runtime state, and common Python caches.
+code and PatchShuttle is not an operating-system sandbox. PatchShuttle overrides
+`PYTHONPYCACHEPREFIX` with a fresh temporary directory for each check and removes
+that directory afterward, keeping generated Python bytecode outside the
+workspace. Formatter order is fixed to isort then Black for protocol 1;
+non-Python jobs skip formatting and do not repeat checks. Optional djLint uses a
+locally selected template profile,
+targets only changed `.html` files, never reformats them, and triggers the same
+rollback path on failure. It reads content through stdin from an isolated
+temporary configuration root, so project djLint configuration cannot weaken
+the local PatchShuttle lint policy. Transaction files are revalidated after
+each executable stage and unrelated final workspace changes are recorded.
+Default ignored paths include VCS metadata, virtual environments, dependency
+trees, PatchShuttle runtime state, and common Python caches.
 
 The command maps approval, workspace locking, job-ID conflicts, actions,
 checks, formatting, and rollback failures to the documented process exit-code
@@ -388,13 +440,13 @@ model. Archive and log filenames include the configured-timezone timestamp,
 job ID, and, for archives, a short normalized hash. Numeric suffixes prevent
 same-second collisions.
 
-Every job run log contains all standard sections in a fixed order, using
-`NOT_APPLICABLE` where a stage did not run, and ends with
+Every job run log contains all standard sections in a fixed order, including
+`LINT_HTML`, using `NOT_APPLICABLE` where a stage did not run, and ends with
 `PATCHSHUTTLE_AI_HANDOFF`. Check and formatter output is bounded by local
-policy. Common password, token, API-key, authorization-header, and private-key
-shapes are masked when redaction is enabled. Redaction is best-effort and is
-not a guarantee that a log contains no secrets; review a log before uploading
-it to any AI service.
+policy, as is HTML linter output. Common password, token, API-key,
+authorization-header, and private-key shapes are masked when redaction is
+enabled. Redaction is best-effort and is not a guarantee that a log contains no
+secrets; review a log before uploading it to any AI service.
 
 Find the latest upload-friendly log:
 
@@ -494,7 +546,8 @@ The implemented local cycle is:
 2. Receive one declarative `.psh.yaml` job.
 3. Review the local execution plan.
 4. Execute an audit, approved patch, or approved verification job.
-5. For a patch, run controlled checks, isort, Black, and final checks.
+5. For a patch, run optional changed-HTML linting, controlled checks, isort,
+   Black, and final checks.
 6. Receive a timestamped log or generate a fresh handoff.
 7. Review the log, upload it to the AI, and continue with the next job.
 

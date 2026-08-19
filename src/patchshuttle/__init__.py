@@ -30,10 +30,12 @@ from patchshuttle.planner import (
     NewlineStyle,
     PathFingerprint,
     Plan,
+    PlanDiff,
     PlannedAction,
     PlannedCheck,
     PlannedFileChange,
     plan_job,
+    render_plan_diff,
 )
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.verification import VerificationRunResult
@@ -66,6 +68,7 @@ __all__ = [
     "PathKind",
     "PathFingerprint",
     "Plan",
+    "PlanDiff",
     "PlannedAction",
     "PlannedCheck",
     "PlannedFileChange",
@@ -93,6 +96,7 @@ __all__ = [
     "load_job",
     "load_workspace",
     "plan_job",
+    "render_plan_diff",
     "rollback_job",
     "validate_job",
 ]

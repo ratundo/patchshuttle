@@ -92,6 +92,29 @@ class FormattingSettings(_ConfigModel):
     rerun_checks: bool = Field(default=True, strict=True)
 
 
+class HtmlLintSettings(_ConfigModel):
+    enabled: bool = Field(default=False, strict=True)
+    tool: Literal["djlint"] = "djlint"
+    profile: Literal[
+        "html",
+        "django",
+        "jinja",
+        "nunjucks",
+        "handlebars",
+        "liquid",
+        "golang",
+        "angular",
+        "tera",
+        "askama",
+    ] = "html"
+    scope: Literal["changed_html_files"] = "changed_html_files"
+    ignore: tuple[StrictString, ...] = ()
+
+
+class LintingSettings(_ConfigModel):
+    html: HtmlLintSettings = Field(default_factory=HtmlLintSettings)
+
+
 class LoggingSettings(_ConfigModel):
     timezone: StrictString = "local"
     include_command_output: bool = Field(default=True, strict=True)
@@ -115,6 +138,7 @@ class PatchShuttleConfig(_ConfigModel):
     project: ProjectSettings
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     formatting: FormattingSettings = Field(default_factory=FormattingSettings)
+    linting: LintingSettings = Field(default_factory=LintingSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     checks: ChecksSettings = Field(default_factory=ChecksSettings)
 
@@ -210,6 +234,12 @@ def render_default_config(
         'order = ["isort", "black"]\n'
         'scope = "changed_python_files"\n'
         "rerun_checks = true\n\n"
+        "[linting.html]\n"
+        "enabled = false\n"
+        'tool = "djlint"\n'
+        'profile = "html"\n'
+        'scope = "changed_html_files"\n'
+        "ignore = []\n\n"
         "[logging]\n"
         'timezone = "local"\n'
         "include_command_output = true\n"
@@ -238,6 +268,8 @@ __all__ = [
     "ChecksSettings",
     "ExecutionSettings",
     "FormattingSettings",
+    "HtmlLintSettings",
+    "LintingSettings",
     "LoggingSettings",
     "PatchShuttleConfig",
     "ProjectOrigin",

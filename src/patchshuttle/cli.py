@@ -28,7 +28,7 @@ from patchshuttle.logging import latest_log_path
 from patchshuttle.models import Job, JobKind
 from patchshuttle.operations import ManualRollbackResult, rollback_job
 from patchshuttle.parser import load_job
-from patchshuttle.planner import Plan, plan_job
+from patchshuttle.planner import Plan, plan_job, render_plan_diff
 from patchshuttle.registry import RegistryJobRecord, get_job, load_registry
 from patchshuttle.workspace import (
     CONFIG_RELATIVE_PATH,
@@ -125,10 +125,17 @@ def validate_command(job_file: Path) -> None:
 
 @main.command("plan")
 @click.argument("job_file", type=click.Path(path_type=Path))
-def plan_command(job_file: Path) -> None:
+@click.option(
+    "--diff",
+    "show_diff",
+    is_flag=True,
+    help="Show the bounded resolved unified diff without writing project files.",
+)
+def plan_command(job_file: Path, show_diff: bool) -> None:
     """Plan JOB_FILE completely without changing the workspace."""
 
-    click.echo(_render_plan(_load_plan(job_file, failure_prefix="PLAN_FAILED")))
+    plan = _load_plan(job_file, failure_prefix="PLAN_FAILED")
+    click.echo(_render_plan(plan, show_diff=show_diff))
 
 
 @main.command("logs")
@@ -560,6 +567,11 @@ def _render_execution_error(
         f"formatter: {result.id} {result.name} {result.status.value}"
         for result in error.formatting_results
     )
+    lines.extend(
+        f"html_lint: {result.id} {result.name} {result.status.value} "
+        f"{result.path.as_posix()}"
+        for result in error.html_lint_results
+    )
     if error.workspace_comparison is not None:
         unexpected = error.workspace_comparison.unexpected_changes
         lines.append(f"unexpected_workspace_changes: {len(unexpected)}")
@@ -586,6 +598,11 @@ def _render_run_result(result: RunResult) -> str:
     lines.extend(
         f"  - {item.id} {item.name} {item.status.value}"
         for item in result.initial_checks
+    )
+    lines.append(f"html_lint: {len(result.html_lint_results)}")
+    lines.extend(
+        f"  - {item.id} {item.name} {item.status.value}: {item.path.as_posix()}"
+        for item in result.html_lint_results
     )
     lines.append(f"formatters: {len(result.formatting_results)}")
     lines.extend(
@@ -706,7 +723,7 @@ def _planning_exit_code(code: PlanningErrorCode) -> int:
     return 5
 
 
-def _render_plan(plan: Plan) -> str:
+def _render_plan(plan: Plan, *, show_diff: bool = False) -> str:
     lines = [
         "PLAN",
         f"project_id: {plan.job.project_id}",
@@ -729,6 +746,12 @@ def _render_plan(plan: Plan) -> str:
         for check in plan.checks
     )
     _append_path_list(lines, "formatting_scope", plan.formatting_targets)
+    _append_path_list(lines, "html_lint_scope", plan.html_lint_targets)
+    lines.append(f"preflight_checks: {len(plan.preflight_checks)}")
+    lines.extend(
+        f"  - {item.id} {item.tool} PASS: {item.path.as_posix()} " f"({item.detail})"
+        for item in plan.preflight_checks
+    )
     lines.append(
         f"protected_paths: {'PASS' if plan.protected_paths_passed else 'BLOCKED'}"
     )
@@ -750,6 +773,15 @@ def _render_plan(plan: Plan) -> str:
             "confirmation_required: " + ("yes" if plan.requires_confirmation else "no"),
         )
     )
+    if show_diff:
+        preview = render_plan_diff(plan)
+        lines.extend(
+            (
+                "resolved_diff:",
+                preview.text.rstrip("\n") if preview.text else "  [NO FILE CHANGES]",
+                f"resolved_diff_truncated: {str(preview.truncated).lower()}",
+            )
+        )
     return "\n".join(lines)
 
 

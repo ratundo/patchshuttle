@@ -47,6 +47,11 @@ def test_load_config_returns_typed_defaults(tmp_path: Path) -> None:
     assert config.execution.max_inventory_entries == 50_000
     assert config.execution.max_inventory_bytes == 1_000_000_000
     assert config.formatting.order == ("isort", "black")
+    assert config.linting.html.enabled is False
+    assert config.linting.html.tool == "djlint"
+    assert config.linting.html.profile == "html"
+    assert config.linting.html.scope == "changed_html_files"
+    assert config.linting.html.ignore == ()
     assert config.logging.timezone == "local"
     assert config.checks.require_at_least_one_for_patch is True
     assert config.checks.profiles == {}
@@ -75,6 +80,23 @@ def test_formatter_order_is_fixed_by_protocol_one(
 
     assert caught.value.code is WorkspaceErrorCode.CONFIG_INVALID
     assert caught.value.path.startswith("$.formatting.order")
+
+
+@pytest.mark.parametrize("profile", ("unknown", "HTML", "django-template"))
+def test_html_lint_profile_is_restricted_to_supported_djlint_profiles(
+    tmp_path: Path,
+    profile: str,
+) -> None:
+    text = render_default_config(PROJECT_ID, ProjectOrigin.EXISTING).replace(
+        'profile = "html"',
+        f'profile = "{profile}"',
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        load_config(write_config(tmp_path, text))
+
+    assert caught.value.code is WorkspaceErrorCode.CONFIG_INVALID
+    assert caught.value.path.startswith("$.linting.html.profile")
 
 
 def test_load_config_accepts_user_defined_check_profiles(tmp_path: Path) -> None:

@@ -80,6 +80,7 @@ def test_testpypi_and_pypi_use_isolated_trusted_publish_jobs() -> None:
         assert "coverage report --fail-under=100" in build_commands
         assert "tools/release_checks.py dist" in build_commands
         assert "tools/wheel_smoke.py" in build_commands
+        assert 'pip install -e ".[dev,html]"' in build_commands
 
 
 def test_source_version_matches_release_candidate() -> None:

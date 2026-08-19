@@ -21,6 +21,7 @@ from patchshuttle import (
     create_snapshot,
     execute_plan,
     init_workspace,
+    load_workspace,
     plan_job,
     rollback_job,
 )
@@ -30,6 +31,40 @@ from patchshuttle.checks import compileall
 root = Path.cwd() / "project"
 root.mkdir()
 workspace = init_workspace(root, new_project=True).workspace
+workspace.config_path.write_text(
+    workspace.config_path.read_text("utf-8").replace(
+        "enabled = false",
+        "enabled = true",
+        1,
+    ),
+    encoding="utf-8",
+)
+workspace = load_workspace(root)
+
+html = Job(
+    protocol=1,
+    project_id=workspace.project_id,
+    id="SMOKE-HTML",
+    kind="patch",
+    actions=(
+        create_file(
+            "templates/page.html",
+            '<!doctype html>\n<html lang="en">\n'
+            "  <head>\n"
+            '    <meta name="description" content="Example">\n'
+            "    <title>Example</title>\n"
+            "  </head>\n"
+            "  <body>\n"
+            "    <main>ok</main>\n"
+            "  </body>\n"
+            "</html>\n",
+        ),
+    ),
+    checks=(compileall(("templates",)),),
+)
+html_result = execute_plan(plan_job(html, workspace), approved=True)
+assert html_result.status.value == "COMPLETED"
+assert html_result.html_lint_results[0].status.value == "PASSED"
 
 patch = Job(
     protocol=1,
@@ -68,6 +103,9 @@ assert create_handoff(workspace).path.is_file()
 rolled_back = rollback_job(workspace, patch.id, approved=True)
 assert rolled_back.job_id == patch.id
 assert not (root / "hello.py").exists()
+html_rollback = rollback_job(workspace, html.id, approved=True)
+assert html_rollback.job_id == html.id
+assert not (root / "templates/page.html").exists()
 assert version("patchshuttle") == EXPECTED_VERSION
 """
 
@@ -121,6 +159,19 @@ def smoke_wheel(wheel: Path, expected_version: str) -> None:
                 "--disable-pip-version-check",
                 "--no-input",
                 str(wheel),
+            ],
+            cwd=root,
+        )
+        _run([str(python), "-m", "pip", "check"], cwd=root)
+        _run(
+            [
+                str(python),
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-input",
+                f"{wheel}[html]",
             ],
             cwd=root,
         )

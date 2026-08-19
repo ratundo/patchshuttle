@@ -16,6 +16,7 @@ import patchshuttle.planner as planner_module
 import patchshuttle.workspace as workspace_module
 from patchshuttle import Job
 from patchshuttle import _process as process_module
+from patchshuttle._process import ProcessCommand, ProcessStatus, run_process
 from patchshuttle.checks import CheckStatus, prepare_checks, run_checks
 from patchshuttle.config import CheckProfileSettings, ChecksSettings
 from patchshuttle.planner import Plan, plan_job
@@ -210,6 +211,7 @@ def test_run_checks_executes_successful_checks_in_order(
     ]
     assert [result.id for result in run.results] == ["check_001", "check_002"]
     assert all(result.duration_ms >= 0 for result in run.results)
+    assert not (workspace.root / "src/__pycache__").exists()
     with pytest.raises(FrozenInstanceError):
         run.results[0].status = CheckStatus.FAILED  # type: ignore[misc]
 
@@ -352,7 +354,93 @@ def test_run_checks_uses_workspace_cwd_stdin_null_and_no_shell(
     assert observed["argv"] == prepare_checks(plan)[0].argv
     assert observed["cwd"] == workspace.root
     assert observed["stdin"] is subprocess.DEVNULL
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    cache = Path(environment["PYTHONPYCACHEPREFIX"])
+    assert cache.name.startswith("patchshuttle-pycache-")
+    assert not cache.is_relative_to(workspace.root)
     assert observed["shell"] is False
+
+
+def test_shared_process_runner_passes_bounded_stdin_without_a_shell(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class CommunicatingProcess:
+        pid = 12345
+        returncode = 0
+
+        def communicate(self, *, input=None, timeout=None):
+            observed["input"] = input
+            observed["timeout"] = timeout
+            observed["stdout"].write(b"accepted\n")
+
+        def poll(self):
+            return 0
+
+    def fake_popen(argv, **kwargs):
+        observed.update(kwargs)
+        observed["stdout"] = kwargs["stdout"]
+        return CommunicatingProcess()
+
+    monkeypatch.setattr(process_module.subprocess, "Popen", fake_popen)
+
+    result = run_process(
+        ProcessCommand(
+            argv=("fixed-tool", "-"),
+            working_directory=tmp_path,
+            timeout_seconds=12,
+            stdin=b"planned input\n",
+        ),
+        maximum_output_bytes=100,
+    )
+
+    assert result.status is ProcessStatus.PASSED
+    assert result.stdout == "accepted\n"
+    assert observed["input"] == b"planned input\n"
+    assert observed["timeout"] == 12
+    assert observed["stdin"] is subprocess.PIPE
+    assert observed["env"] is None
+    assert observed["shell"] is False
+
+
+def test_shared_process_runner_applies_environment_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class CompletedProcess:
+        pid = 12345
+
+        def wait(self, *, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    def fake_popen(argv, **kwargs):
+        observed.update(kwargs)
+        return CompletedProcess()
+
+    monkeypatch.setattr(process_module.subprocess, "Popen", fake_popen)
+
+    result = run_process(
+        ProcessCommand(
+            argv=("fixed-tool",),
+            working_directory=tmp_path,
+            timeout_seconds=12,
+            environment_overrides=(("PATCHSHUTTLE_TEST_VALUE", "fixed"),),
+        ),
+        maximum_output_bytes=100,
+    )
+
+    assert result.status is ProcessStatus.PASSED
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert environment["PATCHSHUTTLE_TEST_VALUE"] == "fixed"
 
 
 def test_prepare_checks_rejects_a_forged_plan_with_missing_check_record(

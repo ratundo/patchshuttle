@@ -53,7 +53,7 @@ or project.
 From the repository root, use Python 3.12 and run:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,html]"
 python -m isort --check-only src tests tools
 python -m black --check src tests tools
 python -m coverage erase

@@ -27,6 +27,8 @@ When asked for a PatchShuttle job:
    explicitly requests a correction of that same attempt.
 8. Never add confirmation or rollback choices to YAML. `--yes` and
    `--keep-changes` are user-controlled CLI decisions, not job fields.
+9. Never add formatter or HTML linter settings to YAML. Those settings belong
+   only to the user's local `patches/patchshuttle.toml` policy.
 
 ## Job kinds
 
@@ -123,13 +125,17 @@ checks:
 ## Local workflow
 
 The user saves the YAML in `patches/inbox/`, validates it, runs
-`patchshuttle plan`, and reviews the read-only plan locally. An audit can run
-without confirmation. Patch and verify jobs require explicit confirmation or
-deliberate `--yes` automation. If validation or planning fails, ask for the
-exact terminal result. After every recorded attempt, ask the user for the
-generated `.log` file or a fresh `patchshuttle handoff` file and use its final
-`PATCHSHUTTLE_AI_HANDOFF` block before preparing the next job. Never state that
-a job was applied merely because YAML or a successful plan was created.
+`patchshuttle plan`, and reviews the read-only plan locally. The user may add
+`--diff` to review the bounded final resolved diff before execution. An audit
+can run without confirmation. Patch and verify jobs require explicit
+confirmation or deliberate `--yes` automation. If validation or planning
+fails, ask for the exact terminal result. Use reported exact line numbers,
+nearby similarity matches, or unified-diff hunk diagnostics to correct the
+next job instead of guessing file content. After every recorded attempt, ask
+the user for the generated `.log` file or a fresh `patchshuttle handoff` file
+and use its final `PATCHSHUTTLE_AI_HANDOFF` block before preparing the next
+job. Never state that a job was applied merely because YAML or a successful
+plan was created.
 
 Interpret failure states conservatively:
 
@@ -142,14 +148,18 @@ Interpret failure states conservatively:
 - `ROLLBACK_FAILED` means restoration is incomplete. Stop proposing new
   changes until the user resolves the listed paths.
 
-This `0.1.0a2` build provides workspace initialization, validation, read-only
+This build provides workspace initialization, validation, read-only
 planning, bounded audit execution, approved patch execution, and approved
 one-pass verification. Patch execution uses all text change actions,
-controlled initial checks, changed-Python-only isort then Black, final checks,
-bounded before/after workspace inventory, undeclared side-effect reporting,
-rollback of declared transaction paths, exact CLI job archives, an atomic
-registry, and fixed-section redacted logs. Completed patches also support
-guarded manual rollback. An explicitly user-approved `--keep-changes` run can
+optional changed-HTML linting under local policy, controlled initial checks,
+changed-Python-only isort then Black, final checks, bounded before/after
+workspace inventory, undeclared side-effect reporting, rollback of declared
+transaction paths, exact CLI job archives, an atomic registry, and
+fixed-section redacted logs. Planning checks PEP 263 Python encoding and
+formatter compatibility before confirmation. HTML content is linted through
+stdin from an isolated configuration root, so a job cannot weaken local lint
+policy through project djLint settings. Completed patches also support guarded
+manual rollback. An explicitly user-approved `--keep-changes` run can
 retain partial declared changes after failure and records that decision
 distinctly. Snapshot and handoff commands produce bounded context without
 dumping source contents. The same completed job ID and normalized hash returns

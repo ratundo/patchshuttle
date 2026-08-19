@@ -290,6 +290,8 @@ def test_plan_reports_complete_patch_preview_without_writing(
     assert "directories_to_create: 1\n  - src\n" in result.stdout
     assert "requested_checks: 1\n  - check_001 compileall: src\n" in result.stdout
     assert "formatting_scope: 1\n  - src/example.py\n" in result.stdout
+    assert "html_lint_scope: 0\n" in result.stdout
+    assert "preflight_checks: 3\n" in result.stdout
     assert "protected_paths: PASS\n" in result.stdout
     assert (
         "backup_destination: patches/backups/PATCH-001/<RUN_TIMESTAMP>\n"
@@ -299,6 +301,34 @@ def test_plan_reports_complete_patch_preview_without_writing(
     assert result.stdout.endswith("confirmation_required: yes\n")
     assert file_snapshot(tmp_path) == before
     assert not (tmp_path / "src").exists()
+
+
+def test_plan_diff_prints_resolved_preview_without_writing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    path = write_job(tmp_path, VALID_PATCH_YAML)
+
+    result = CliRunner().invoke(main, ["plan", "--diff", str(path)])
+
+    assert result.exit_code == 0
+    assert "resolved_diff:\n--- /dev/null\n+++ b/src/example.py\n" in result.stdout
+    assert "+VALUE = 1\n" in result.stdout
+    assert result.stdout.endswith("resolved_diff_truncated: false\n")
+
+
+def test_plan_diff_reports_no_changes_for_an_audit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    path = write_job(tmp_path)
+
+    result = CliRunner().invoke(main, ["plan", str(path), "--diff"])
+
+    assert result.exit_code == 0
+    assert "resolved_diff:\n  [NO FILE CHANGES]\n" in result.stdout
 
 
 def test_plan_reports_audit_without_backup_or_confirmation(

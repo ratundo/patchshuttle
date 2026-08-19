@@ -35,6 +35,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+html = [
+    "djlint>=1.44,<2",
+]
 dev = [
     "build>=1.2,<2",
     "django>=5.2,<7",

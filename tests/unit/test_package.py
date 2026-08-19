@@ -22,6 +22,9 @@ def test_build_metadata_stays_compatible_with_release_tooling() -> None:
 
     assert targets["sdist"]["core-metadata-version"] == "2.4"
     assert targets["wheel"]["core-metadata-version"] == "2.4"
+    assert configuration["project"]["optional-dependencies"]["html"] == [
+        "djlint>=1.44,<2"
+    ]
 
 
 def test_public_exports_match_the_implemented_surface() -> None:
@@ -45,6 +48,7 @@ def test_public_exports_match_the_implemented_surface() -> None:
         "PathKind",
         "PathFingerprint",
         "Plan",
+        "PlanDiff",
         "PlannedAction",
         "PlannedCheck",
         "PlannedFileChange",
@@ -72,6 +76,7 @@ def test_public_exports_match_the_implemented_surface() -> None:
         "load_job",
         "load_workspace",
         "plan_job",
+        "render_plan_diff",
         "rollback_job",
         "validate_job",
     ]

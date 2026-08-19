@@ -14,6 +14,9 @@
 > PyPI publication, and a clean installation smoke test. A recorded ChatGPT
 > end-to-end workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
 > Version `0.1.0a2` remains an alpha pre-release, not stable `0.1.0`.
+> Unreleased next-alpha work adds AI-facing mismatch diagnostics, resolved
+> diff previews, Python formatter preflight, and opt-in changed-HTML linting;
+> those changes are not part of the published `0.1.0a2` evidence.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -31,7 +34,8 @@ The normal workflow is manual and stepwise:
 2. The AI returns one declarative `.psh.yaml` job.
 3. The user places the job in the project and reviews the execution plan.
 4. PatchShuttle validates and applies the job locally.
-5. PatchShuttle runs checks, then isort and Black, then repeats the checks.
+5. PatchShuttle optionally lints changed HTML, runs checks, then isort and
+   Black, then repeats the checks.
 6. PatchShuttle creates a timestamped log for the user to return to the AI.
 7. The next job is created only after the previous result is understood.
 
@@ -53,7 +57,7 @@ handling, and idempotency belongs to PatchShuttle.
 
 ### 2.3 Safe failure is more important than partial success
 
-A validation, policy, action, check, or formatting failure stops the job.
+A validation, policy, action, lint, check, or formatting failure stops the job.
 PatchShuttle then restores the files covered by its transaction unless the user
 explicitly selected `--keep-changes`.
 
@@ -90,6 +94,7 @@ PatchShuttle v0.1 includes:
 - execution planning and interactive approval;
 - project-local backups and rollback;
 - automatic isort and Black formatting of changed Python files;
+- optional djLint lint-only checks for changed HTML files;
 - initial and final checks;
 - timestamped logs, snapshots, and AI handoffs;
 - Windows and Linux support;
@@ -302,6 +307,13 @@ order = ["isort", "black"]
 scope = "changed_python_files"
 rerun_checks = true
 
+[linting.html]
+enabled = false
+tool = "djlint"
+profile = "html"
+scope = "changed_html_files"
+ignore = []
+
 [logging]
 timezone = "local"
 include_command_output = true
@@ -318,6 +330,7 @@ Configuration values are user policy. A YAML job cannot override:
 - confirmation requirements;
 - backup and rollback policy;
 - formatting order;
+- HTML lint enablement, profile, ignore rules, or scope;
 - command allowlists;
 - size or output limits;
 - shell execution policy.
@@ -643,6 +656,8 @@ Behavior:
 - if `old` is absent and `new` is already present in the expected count, return
   `NO_CHANGE` with an idempotency note;
 - otherwise fail with expected and actual counts;
+- on a count mismatch, report exact match line numbers or up to three bounded,
+  similarity-ranked nearby snippets;
 - verify the replacement count after writing.
 
 ### 13.5 `insert_before`
@@ -699,6 +714,10 @@ v0.1 rules:
 - no file deletion, rename, or mode change;
 - all paths must pass normal workspace policy;
 - every hunk must validate in a dry run before any file is written;
+- invalid hunk counts report the hunk number plus declared and actual old/new
+  counts;
+- context mismatches report the hunk number, first mismatching source line,
+  and bounded expected and actual previews;
 - the implementation must not invoke a system shell or external `patch`
   command;
 - all affected files are backed up before the first write;
@@ -867,6 +886,7 @@ LOAD
 -> CREATE BACKUP MANIFEST
 -> APPLY ACTIONS
 -> VERIFY ACTION POST-STATES
+-> RUN OPTIONAL HTML LINT
 -> RUN INITIAL CHECKS
 -> RUN ISORT
 -> RUN BLACK
@@ -883,7 +903,8 @@ explicitly accepted.
 ## 16. Planning and approval
 
 `patchshuttle plan JOB.psh.yaml` performs all validation and read-only planning
-without creating backups or writing project files.
+without creating backups or writing project files. Adding `--diff` displays a
+bounded unified preview of the final resolved bytes.
 
 Before executing a patch, the CLI displays at minimum:
 
@@ -896,6 +917,8 @@ Files to modify
 Directories to create
 Requested checks
 Formatting scope
+HTML lint scope
+Quality preflight results
 Protected-path result
 Backup destination
 Automatic rollback policy
@@ -932,6 +955,7 @@ Each backup contains:
 - file mode where supported;
 - action order;
 - formatter targets;
+- HTML linter targets;
 - run metadata.
 
 ### 17.2 Atomic writes
@@ -964,7 +988,9 @@ mode with `allow_keep_changes = false`.
 ### 17.4 Transaction boundary
 
 The guaranteed transaction boundary is limited to files declared by change
-actions and files changed by PatchShuttle's formatter step.
+actions and files changed by PatchShuttle's formatter step. The HTML linter is
+lint-only; PatchShuttle verifies that it did not change a declared transaction
+file.
 
 External checks execute project code. They may create caches or modify files
 outside the declared transaction. PatchShuttle records a before-and-after
@@ -988,6 +1014,9 @@ Rules:
 - formatters never target the entire repository by default;
 - non-Python jobs skip formatting with a recorded status;
 - formatter availability is checked during preflight;
+- Python source encoding is detected with the PEP 263 mechanism;
+- final planned Python content must be accepted by isort and Black before
+  confirmation and before any transaction write;
 - formatter failure triggers rollback;
 - formatter output and resulting file hashes are logged;
 - AI jobs cannot change formatter order or scope.
@@ -995,6 +1024,29 @@ Rules:
 Black and isort are required package dependencies in v0.1 so a normal
 `pip install patchshuttle` provides the default workflow without an additional
 installation step.
+
+### 18.1 Optional HTML linting
+
+HTML linting is local policy, not an AI-job field. It is disabled by default.
+When enabled, PatchShuttle:
+
+1. selects only created or modified files whose suffix is `.html`, using
+   case-insensitive suffix matching;
+2. requires the locally installed `djlint` module;
+3. sends final planned bytes to djLint through stdin from an isolated temporary
+   configuration root during read-only planning;
+4. after applying actions, sends approved final bytes through stdin and runs
+   djLint once per approved path in lint-only mode with a fixed argument array
+   and `shell=False`;
+5. stops after the first failure, timeout, or launch error and enters the
+   normal rollback path;
+6. verifies that the linter did not modify transaction files;
+7. records bounded stdout, stderr, exit status, duration, profile, and path.
+
+The optional `html` package extra installs `djlint>=1.44,<2`. PatchShuttle does
+not install it automatically and never reformats HTML in this workflow.
+Project `pyproject.toml`, `djlint.toml`, and `.djlintrc` files are not consulted
+for this stage, so a change job cannot weaken local PatchShuttle lint policy.
 
 ## 19. Workspace protection
 
@@ -1025,7 +1077,10 @@ Review the job and changed files before continuing.
 ### 19.3 Environment and secrets
 
 Subprocess checks inherit the user's process environment unless a user-defined
-profile restricts it. PatchShuttle does not log environment-variable values.
+profile restricts it. PatchShuttle overrides `PYTHONPYCACHEPREFIX` with a fresh
+temporary directory for each check and removes that directory afterward, so
+Python bytecode generated by checks stays outside the workspace. PatchShuttle
+does not log environment-variable values.
 
 Log redaction is best-effort. It searches for common token, password, API-key,
 authorization-header, and private-key patterns. PatchShuttle must not describe
@@ -1094,6 +1149,7 @@ PLAN
 AUDIT
 BACKUP
 ACTIONS
+LINT_HTML
 INITIAL_CHECKS
 FORMAT_ISORT
 FORMAT_BLACK
@@ -1156,6 +1212,7 @@ changed_files
 created_files
 created_directories
 checks_passed
+html_lint_status
 formatting_status
 rollback_status
 log_path
@@ -1509,6 +1566,15 @@ has been tested through a documented end-to-end scenario.
 - clean production PyPI installation smoke test completed;
 - recorded ChatGPT end-to-end workflow passed on 2026-08-17.
 
+### `0.1.0a3` (unreleased)
+
+- AI-facing exact-match and unified-diff diagnostics;
+- bounded resolved previews through `plan --diff`;
+- PEP 263, isort, and Black planning preflight for changed Python files;
+- optional changed-HTML djLint preflight and transactional lint stage;
+- failed-plan logging, read-only capability discovery, and explicit workspace
+  selection remain separate planned follow-up work.
+
 ### `0.1.0b1`
 
 - AI guide and handoff;
@@ -1589,6 +1655,7 @@ unless this specification is explicitly revised:
 - isort runs before Black;
 - checks run before and after formatting;
 - only changed Python files are formatted;
+- optional HTML linting is local policy, changed-file-only, and lint-only;
 - no automatic dependency installation;
 - no arbitrary shell supplied by a job;
 - no automatic Git commits;

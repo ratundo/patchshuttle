@@ -7,7 +7,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import BinaryIO
@@ -29,6 +29,11 @@ class ProcessCommand:
     argv: tuple[str, ...]
     working_directory: Path
     timeout_seconds: int
+    stdin: bytes | None = field(default=None, repr=False)
+    environment_overrides: tuple[tuple[str, str], ...] = field(
+        default=(),
+        repr=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +61,10 @@ def run_process(
     """Run one fixed command without a shell and with bounded captured output."""
 
     started = time.monotonic_ns()
+    environment = None
+    if command.environment_overrides:
+        environment = os.environ.copy()
+        environment.update(command.environment_overrides)
     with (
         tempfile.TemporaryFile(mode="w+b") as stdout_stream,
         tempfile.TemporaryFile(mode="w+b") as stderr_stream,
@@ -64,9 +73,12 @@ def run_process(
             process = subprocess.Popen(
                 command.argv,
                 cwd=command.working_directory,
-                stdin=subprocess.DEVNULL,
+                stdin=(
+                    subprocess.PIPE if command.stdin is not None else subprocess.DEVNULL
+                ),
                 stdout=stdout_stream,
                 stderr=stderr_stream,
+                env=environment,
                 shell=False,
                 **_process_group_options(),
             )
@@ -87,7 +99,14 @@ def run_process(
 
         timed_out = False
         try:
-            return_code = process.wait(timeout=command.timeout_seconds)
+            if command.stdin is None:
+                return_code = process.wait(timeout=command.timeout_seconds)
+            else:
+                process.communicate(
+                    input=command.stdin,
+                    timeout=command.timeout_seconds,
+                )
+                return_code = process.returncode
         except subprocess.TimeoutExpired:
             timed_out = True
             return_code = None

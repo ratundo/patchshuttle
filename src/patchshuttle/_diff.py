@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from itertools import zip_longest
 from pathlib import PurePosixPath
 
 from patchshuttle.errors import PlanningError, PlanningErrorCode
@@ -102,7 +103,12 @@ def parse_unified_diff(
 
         hunks: list[DiffHunk] = []
         while index < len(lines) and lines[index].startswith("@@ "):
-            hunk, index = _parse_hunk(lines, index, item_id=item_id)
+            hunk, index = _parse_hunk(
+                lines,
+                index,
+                item_id=item_id,
+                hunk_number=len(hunks) + 1,
+            )
             hunks.append(hunk)
         if not hunks:
             raise _error(
@@ -135,22 +141,37 @@ def apply_file_diff(text: str, diff: FileDiff, *, item_id: str) -> str:
     source = text.splitlines(keepends=True)
     output: list[str] = []
     cursor = 0
-    for hunk in diff.hunks:
+    for hunk_number, hunk in enumerate(diff.hunks, start=1):
         start = hunk.old_start if hunk.old_count == 0 else hunk.old_start - 1
         end = start + len(hunk.old_lines)
         if start < cursor or end > len(source):
+            reason = "overlaps a previous hunk" if start < cursor else "is out of range"
             raise _error(
                 PlanningErrorCode.DIFF_HUNK_MISMATCH,
-                "hunk range does not match the current file",
+                f"hunk {hunk_number} {reason} for the current file",
                 item_id,
                 path=diff.path,
+                details=(
+                    f"  hunk: {hunk_number}",
+                    f"  declared_old_start: {hunk.old_start}",
+                    f"  declared_old_lines: {hunk.old_count}",
+                    f"  source_lines: {len(source)}",
+                    f"  previous_hunk_end: {cursor}",
+                ),
             )
-        if tuple(source[start:end]) != hunk.old_lines:
+        actual_lines = tuple(source[start:end])
+        if actual_lines != hunk.old_lines:
+            mismatch = _first_context_mismatch(
+                hunk.old_lines,
+                actual_lines,
+                first_line=hunk.old_start,
+            )
             raise _error(
                 PlanningErrorCode.DIFF_HUNK_MISMATCH,
-                "hunk context does not match the current file",
+                f"hunk {hunk_number} context does not match the current file",
                 item_id,
                 path=diff.path,
+                details=(f"  hunk: {hunk_number}", *mismatch),
             )
         output.extend(source[cursor:start])
         output.extend(hunk.new_lines)
@@ -198,12 +219,13 @@ def _parse_hunk(
     index: int,
     *,
     item_id: str,
+    hunk_number: int,
 ) -> tuple[DiffHunk, int]:
     match = _HUNK_HEADER.fullmatch(lines[index])
     if match is None:
         raise _error(
             PlanningErrorCode.DIFF_INVALID,
-            "invalid unified-diff hunk header",
+            f"invalid unified-diff hunk {hunk_number} header",
             item_id,
         )
     old_start = int(match.group(1))
@@ -260,8 +282,15 @@ def _parse_hunk(
     if len(old_lines) != old_count or len(new_lines) != new_count:
         raise _error(
             PlanningErrorCode.DIFF_INVALID,
-            "hunk body line counts do not match its header",
+            f"hunk {hunk_number} body line counts do not match its header",
             item_id,
+            details=(
+                f"  hunk: {hunk_number}",
+                f"  declared_old_lines: {old_count}",
+                f"  actual_old_lines: {len(old_lines)}",
+                f"  declared_new_lines: {new_count}",
+                f"  actual_new_lines: {len(new_lines)}",
+            ),
         )
     return (
         DiffHunk(
@@ -310,8 +339,39 @@ def _error(
     item_id: str,
     *,
     path: str | None = None,
+    details: tuple[str, ...] = (),
 ) -> PlanningError:
-    return PlanningError(code, message, item_id=item_id, path=path)
+    return PlanningError(
+        code,
+        message,
+        item_id=item_id,
+        path=path,
+        details=details,
+    )
+
+
+def _first_context_mismatch(
+    expected: tuple[str, ...],
+    actual: tuple[str, ...],
+    *,
+    first_line: int,
+) -> tuple[str, ...]:
+    for offset, (expected_line, actual_line) in enumerate(
+        zip_longest(expected, actual, fillvalue=None)
+    ):
+        if expected_line == actual_line:
+            continue
+        return (
+            f"  first_mismatch_line: {first_line + offset}",
+            f"  expected: {_preview_line(expected_line)}",
+            f"  actual: {_preview_line(actual_line)}",
+        )
+    return ("  first_mismatch_line: unknown",)
+
+
+def _preview_line(value: str | None, maximum: int = 240) -> str:
+    rendered = "<missing>" if value is None else repr(value.rstrip("\n"))
+    return rendered if len(rendered) <= maximum else rendered[: maximum - 3] + "..."
 
 
 __all__ = ["FileDiff", "apply_file_diff", "parse_unified_diff"]

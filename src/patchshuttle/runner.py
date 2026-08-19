@@ -41,6 +41,7 @@ from patchshuttle.inventory import (
     capture_inventory,
     compare_inventories,
 )
+from patchshuttle.linters import HtmlLintResult, HtmlLintStatus, run_html_linter
 from patchshuttle.models import JobKind
 from patchshuttle.planner import (
     ActionDisposition,
@@ -81,6 +82,7 @@ class TransactionResult:
     created_files: tuple[PurePosixPath, ...]
     created_directories: tuple[PurePosixPath, ...]
     modified_files: tuple[PurePosixPath, ...] = ()
+    html_lint_results: tuple[HtmlLintResult, ...] = ()
     initial_checks: tuple[CheckResult, ...] = ()
     formatting_results: tuple[FormatterResult, ...] = ()
     formatted_files: tuple[FormattedFileState, ...] = ()
@@ -253,6 +255,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
             created_files=(),
             created_directories=(),
             modified_files=(),
+            html_lint_results=(),
             initial_checks=(),
             formatting_results=(),
             formatted_files=(),
@@ -269,6 +272,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
     applied_files: set[PurePosixPath] = set()
     current_item: str | None = None
     current_path: PurePosixPath | None = None
+    html_lint_results: tuple[HtmlLintResult, ...] = ()
     initial_checks: tuple[CheckResult, ...] = ()
     formatting_results: tuple[FormatterResult, ...] = ()
     formatted_files: tuple[FormattedFileState, ...] = ()
@@ -352,6 +356,44 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
             raise OSError("not all planned files were created")
         if tuple(modified_files) != plan.files_to_modify:
             raise OSError("not all planned files were modified")
+
+        if plan.html_lint_targets:
+            current_item = "html_lint"
+            current_path = plan.html_lint_targets[0]
+            try:
+                html_lint_run = run_html_linter(plan)
+            except (OSError, PolicyError, ValueError) as exc:
+                raise ExecutionError(
+                    ExecutionErrorCode.HTML_LINT_FAILED,
+                    "HTML lint commands could not be prepared or launched",
+                    item_id="html_lint",
+                    path=plan.html_lint_targets[0].as_posix(),
+                    html_lint_results=html_lint_results,
+                ) from exc
+            html_lint_results = html_lint_run.results
+            if html_lint_run.failed is not None:
+                failure_messages = {
+                    HtmlLintStatus.FAILED: "djLint reported template lint errors",
+                    HtmlLintStatus.TIMED_OUT: "djLint timed out",
+                    HtmlLintStatus.ERROR: "djLint could not be started",
+                }
+                raise ExecutionError(
+                    ExecutionErrorCode.HTML_LINT_FAILED,
+                    failure_messages[html_lint_run.failed.status],
+                    item_id=html_lint_run.failed.id,
+                    path=html_lint_run.failed.path.as_posix(),
+                    html_lint_results=html_lint_results,
+                )
+            _verify_planned_transaction_files(
+                plan,
+                backup,
+                excluded=frozenset(),
+                code=ExecutionErrorCode.HTML_LINT_FAILED,
+                message="HTML linter changed a declared transaction file",
+                check_results=(),
+                formatting_results=(),
+                html_lint_results=html_lint_results,
+            )
 
         current_item = None
         current_path = None
@@ -493,8 +535,11 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
         except ExecutionError as exc:
             exc.check_results = initial_checks + final_checks
             exc.formatting_results = formatting_results
+            exc.html_lint_results = html_lint_results
             raise
     except BaseException as exc:
+        if isinstance(exc, ExecutionError) and not exc.html_lint_results:
+            exc.html_lint_results = html_lint_results
         failure = _action_failure(
             exc,
             item_id=current_item,
@@ -541,6 +586,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
         created_files=tuple(created_files),
         created_directories=tuple(created_directories),
         modified_files=tuple(modified_files),
+        html_lint_results=html_lint_results,
         initial_checks=initial_checks,
         formatting_results=formatting_results,
         formatted_files=formatted_files,
@@ -665,6 +711,7 @@ def _verify_planned_transaction_files(
     message: str,
     check_results: tuple[CheckResult, ...],
     formatting_results: tuple[FormatterResult, ...],
+    html_lint_results: tuple[HtmlLintResult, ...] = (),
 ) -> None:
     for change in plan.file_changes:
         if change.path in excluded:
@@ -688,6 +735,7 @@ def _verify_planned_transaction_files(
                 path=change.path.as_posix(),
                 check_results=check_results,
                 formatting_results=formatting_results,
+                html_lint_results=html_lint_results,
             ) from exc
 
 
@@ -762,6 +810,7 @@ def _action_failure(
             cause_code=exc.cause_code,
             check_results=exc.check_results,
             formatting_results=exc.formatting_results,
+            html_lint_results=exc.html_lint_results,
             workspace_comparison=exc.workspace_comparison,
         )
     return ExecutionError(
@@ -792,6 +841,7 @@ def _record_retained_failure(
         error.cause_code = failure.code
         error.check_results = failure.check_results
         error.formatting_results = failure.formatting_results
+        error.html_lint_results = failure.html_lint_results
         error.rollback_skipped = True
         error.changes_kept = changes_present
         raise
@@ -831,6 +881,7 @@ def _rollback_or_raise(
             cause_code=failure.code,
             check_results=failure.check_results,
             formatting_results=failure.formatting_results,
+            html_lint_results=failure.html_lint_results,
             workspace_comparison=failure.workspace_comparison,
         ) from exc
     if rollback.success:
@@ -845,6 +896,7 @@ def _rollback_or_raise(
             exc.cause_code = failure.code
             exc.check_results = failure.check_results
             exc.formatting_results = failure.formatting_results
+            exc.html_lint_results = failure.html_lint_results
             raise
         failure.rollback_succeeded = True
         return
@@ -866,6 +918,7 @@ def _rollback_or_raise(
         cause_code=failure.code,
         check_results=failure.check_results,
         formatting_results=failure.formatting_results,
+        html_lint_results=failure.html_lint_results,
         workspace_comparison=failure.workspace_comparison,
     )
 

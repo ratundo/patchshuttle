@@ -5,8 +5,35 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased
 
+### Added
+
+- `patchshuttle plan JOB.psh.yaml --diff` prints a bounded unified preview of
+  the fully resolved in-memory file changes without writing project files.
+- Exact text-action mismatches now include exact line numbers or up to three
+  bounded, similarity-ranked nearby snippets. Unified-diff failures include
+  hunk numbers, declared and actual counts, and first context mismatches.
+- Changed Python files receive a read-only PEP 263 encoding, isort, and Black
+  compatibility preflight during planning.
+- The optional `patchshuttle[html]` extra installs djLint. Local configuration
+  can enable lint-only checks for the exact changed `.html` scope, including
+  isolated stdin-based planning preflight, fixed non-shell execution, log
+  records, and automatic rollback on failure. Project djLint configuration
+  cannot override this local PatchShuttle policy.
+
+### Changed
+
+- Backup manifests record the approved HTML lint scope, and run logs include a
+  fixed `LINT_HTML` section plus `html_lint_status` in the summary.
+- HTML linting is disabled by default and cannot be enabled or reconfigured by
+  an AI job.
+
 ### Fixed
 
+- Python checks now redirect bytecode caches to an isolated temporary
+  directory, so `compileall`, imports, and test collection do not leave
+  `__pycache__` entries that can obstruct rollback of a newly created package.
+- Binary Python targets are classified before PEP 263 formatter preflight, and
+  resolved-diff no-change coverage now uses platform-stable LF bytes.
 - Symlink-dependent tests now skip consistently when the platform or current
   process cannot create symbolic links.
 

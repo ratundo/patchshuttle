@@ -17,6 +17,7 @@ from patchshuttle.checks import CheckResult
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode
 from patchshuttle.formatters import FormatterResult
 from patchshuttle.inventory import WorkspaceComparison
+from patchshuttle.linters import HtmlLintResult
 from patchshuttle.models import Job
 from patchshuttle.planner import ActionDisposition, Plan
 from patchshuttle.runner import TransactionResult
@@ -30,6 +31,7 @@ STANDARD_SECTIONS = (
     "AUDIT",
     "BACKUP",
     "ACTIONS",
+    "LINT_HTML",
     "INITIAL_CHECKS",
     "FORMAT_ISORT",
     "FORMAT_BLACK",
@@ -248,6 +250,7 @@ def _render_log(data: RunLogData, log_path: Path) -> str:
         "AUDIT": _audit_section(data),
         "BACKUP": _backup_section(data),
         "ACTIONS": _actions_section(data),
+        "LINT_HTML": _html_lint_section(data),
         "INITIAL_CHECKS": _checks_section(_split_checks(data)[0], data.workspace),
         "FORMAT_ISORT": _formatter_section(_formatter(data, "isort"), data.workspace),
         "FORMAT_BLACK": _formatter_section(_formatter(data, "black"), data.workspace),
@@ -309,6 +312,8 @@ def _plan_section(plan: Plan | None) -> str:
         f"files_to_modify: {_json_paths(plan.files_to_modify)}",
         f"directories_to_create: {_json_paths(plan.directories_to_create)}",
         f"formatting_scope: {_json_paths(plan.formatting_targets)}",
+        f"html_lint_scope: {_json_paths(plan.html_lint_targets)}",
+        f"preflight_checks: {len(plan.preflight_checks)}",
         "protected_paths: PASS",
         f"automatic_rollback: {'enabled' if plan.auto_rollback else 'disabled'}",
     ]
@@ -400,6 +405,31 @@ def _checks_section(
     if not checks:
         return "NOT_APPLICABLE"
     return "\n---\n".join(_check_record(item, workspace) for item in checks)
+
+
+def _html_lint_section(data: RunLogData) -> str:
+    results = _html_lints(data)
+    if not results:
+        return "NOT_APPLICABLE"
+    include_output = data.workspace.config.logging.include_command_output
+    return "\n---\n".join(
+        _fields(
+            lint_id=item.id,
+            linter=item.name,
+            path=item.path.as_posix(),
+            argument_summary=json.dumps(item.argv, ensure_ascii=False),
+            working_directory=item.working_directory.as_posix(),
+            timeout=item.timeout_seconds,
+            exit_code=item.return_code,
+            duration_ms=item.duration_ms,
+            stdout=(item.stdout if include_output else "OMITTED_BY_LOCAL_POLICY"),
+            stderr=(item.stderr if include_output else "OMITTED_BY_LOCAL_POLICY"),
+            stdout_truncated=item.stdout_truncated,
+            stderr_truncated=item.stderr_truncated,
+            status=item.status.value,
+        )
+        for item in results
+    )
 
 
 def _check_record(item: CheckResult, workspace: Workspace) -> str:
@@ -510,6 +540,7 @@ def _summary_section(data: RunLogData, log_path: Path) -> str:
     created_files, created_directories, modified_files = _changed_paths(data)
     initial, final = _split_checks(data)
     formatters = _formatters(data)
+    html_lints = _html_lints(data)
     formatting_status = (
         "NOT_APPLICABLE"
         if data.plan is None or not data.plan.formatting_targets
@@ -517,6 +548,16 @@ def _summary_section(data: RunLogData, log_path: Path) -> str:
             "PASSED"
             if len(formatters) == 2 and all(item.success for item in formatters)
             else "FAILED" if formatters else "NOT_STARTED"
+        )
+    )
+    html_lint_status = (
+        "NOT_APPLICABLE"
+        if data.plan is None or not data.plan.html_lint_targets
+        else (
+            "PASSED"
+            if len(html_lints) == len(data.plan.html_lint_targets)
+            and all(item.success for item in html_lints)
+            else "FAILED" if html_lints else "NOT_STARTED"
         )
     )
     rollback = (
@@ -537,6 +578,7 @@ def _summary_section(data: RunLogData, log_path: Path) -> str:
         created_files=_json_paths(created_files),
         created_directories=_json_paths(created_directories),
         checks_passed=sum(item.success for item in (*initial, *final)),
+        html_lint_status=html_lint_status,
         formatting_status=formatting_status,
         rollback_status=rollback,
         log_path=_relative(data.workspace, log_path),
@@ -610,6 +652,14 @@ def _formatters(data: RunLogData) -> tuple[FormatterResult, ...]:
         return data.transaction.formatting_results
     if data.error is not None:
         return data.error.formatting_results
+    return ()
+
+
+def _html_lints(data: RunLogData) -> tuple[HtmlLintResult, ...]:
+    if data.transaction is not None:
+        return data.transaction.html_lint_results
+    if data.error is not None:
+        return data.error.html_lint_results
     return ()
 
 

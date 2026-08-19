@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import difflib
 import hashlib
 import json
 import re
@@ -19,6 +20,11 @@ from patchshuttle._diff import apply_file_diff, parse_unified_diff
 from patchshuttle.errors import PlanningError, PlanningErrorCode
 from patchshuttle.models import Action, Check, Job, JobKind
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
+from patchshuttle.preflight import (
+    PlannedPreflightCheck,
+    detect_python_encoding,
+    run_quality_preflight,
+)
 from patchshuttle.workspace import Workspace, discover_workspace
 
 
@@ -78,6 +84,7 @@ class PlannedFileChange:
     after_size: int
     encoding: str
     newline: NewlineStyle
+    before_content: bytes | None = field(repr=False)
     content: bytes = field(repr=False)
 
 
@@ -104,6 +111,8 @@ class Plan:
     file_changes: tuple[PlannedFileChange, ...]
     directories_to_create: tuple[PurePosixPath, ...]
     formatting_targets: tuple[PurePosixPath, ...]
+    html_lint_targets: tuple[PurePosixPath, ...]
+    preflight_checks: tuple[PlannedPreflightCheck, ...]
     fingerprints: tuple[PathFingerprint, ...]
     protected_paths_passed: bool
     backup_destination: PurePosixPath | None
@@ -131,6 +140,14 @@ class Plan:
             self.job.kind is not JobKind.AUDIT
             and self.workspace.config.execution.confirm
         )
+
+
+@dataclass(frozen=True, slots=True)
+class PlanDiff:
+    """One bounded unified preview of all resolved planned file changes."""
+
+    text: str = field(repr=False)
+    truncated: bool
 
 
 @dataclass(slots=True)
@@ -211,6 +228,15 @@ class _Planner:
         if formatting_targets:
             self._require_module("isort", item_id="formatting")
             self._require_module("black", item_id="formatting")
+        html_lint_targets = self._html_lint_targets(file_changes)
+        if html_lint_targets:
+            self._require_module("djlint", item_id="html_lint")
+        preflight_checks = run_quality_preflight(
+            self.workspace,
+            file_changes,
+            formatting_targets=formatting_targets,
+            html_lint_targets=html_lint_targets,
+        )
         backup_destination = (
             PurePosixPath(
                 "patches",
@@ -230,6 +256,8 @@ class _Planner:
             file_changes=file_changes,
             directories_to_create=tuple(self.created_directories),
             formatting_targets=formatting_targets,
+            html_lint_targets=html_lint_targets,
+            preflight_checks=preflight_checks,
             fingerprints=tuple(self.fingerprints.values()),
             protected_paths_passed=True,
             backup_destination=backup_destination,
@@ -443,6 +471,8 @@ class _Planner:
                     path,
                     expected=parameters.expected_count,
                     actual=actual,
+                    text=text,
+                    needle=old,
                 )
         elif action.name in {"insert_before", "insert_after"}:
             anchor = _normalize_newlines(parameters.anchor)
@@ -454,6 +484,8 @@ class _Planner:
                     path,
                     expected=parameters.expected_count,
                     actual=len(positions),
+                    text=text,
+                    needle=anchor,
                 )
             adjacency = [
                 _is_adjacent(
@@ -487,6 +519,8 @@ class _Planner:
                     path,
                     expected=parameters.expected_count,
                     actual=actual,
+                    text=text,
+                    needle=deleted,
                 )
             updated = text.replace(deleted, "")
 
@@ -828,15 +862,22 @@ class _Planner:
             bom, codec, encoding = _UTF16_LE_BOM, "utf-16-le", "utf-16-le"
         elif raw.startswith(_UTF16_BE_BOM):
             bom, codec, encoding = _UTF16_BE_BOM, "utf-16-be", "utf-16-be"
+        elif b"\0" in raw:
+            raise self._error(
+                PlanningErrorCode.FILE_BINARY,
+                "file contains null bytes",
+                item_id,
+                path=path.as_posix(),
+            )
+        elif path.suffix.casefold() == ".py":
+            try:
+                encoding = detect_python_encoding(raw, path=path)
+            except PlanningError as error:
+                error.item_id = item_id
+                raise
+            codec = codecs.lookup(encoding).name
         else:
             codec = encoding = "utf-8"
-            if b"\0" in raw:
-                raise self._error(
-                    PlanningErrorCode.FILE_BINARY,
-                    "file contains null bytes",
-                    item_id,
-                    path=path.as_posix(),
-                )
 
         try:
             text = raw[len(bom) :].decode(codec)
@@ -1016,12 +1057,16 @@ class _Planner:
         *,
         expected: int,
         actual: int,
+        text: str,
+        needle: str,
     ) -> PlanningError:
+        details = _occurrence_diagnostics(text, needle, actual=actual)
         return self._error(
             PlanningErrorCode.OCCURRENCE_COUNT_MISMATCH,
             f"expected {expected} exact occurrence(s), found {actual}",
             item_id,
             path=path.as_posix(),
+            details=details,
         )
 
     def _build_file_changes(self) -> tuple[PlannedFileChange, ...]:
@@ -1055,6 +1100,7 @@ class _Planner:
                     after_size=len(state.current_bytes),
                     encoding=state.encoding,
                     newline=state.newline,
+                    before_content=state.original_bytes,
                     content=state.current_bytes,
                 )
             )
@@ -1068,6 +1114,18 @@ class _Planner:
             return ()
         return tuple(change.path for change in changes if change.path.suffix == ".py")
 
+    def _html_lint_targets(
+        self,
+        changes: tuple[PlannedFileChange, ...],
+    ) -> tuple[PurePosixPath, ...]:
+        if not self.workspace.config.linting.html.enabled:
+            return ()
+        return tuple(
+            change.path
+            for change in changes
+            if change.path.suffix.casefold() == ".html"
+        )
+
     @staticmethod
     def _error(
         code: PlanningErrorCode,
@@ -1075,8 +1133,15 @@ class _Planner:
         item_id: str,
         *,
         path: str | None = None,
+        details: tuple[str, ...] = (),
     ) -> PlanningError:
-        return PlanningError(code, message, item_id=item_id, path=path)
+        return PlanningError(
+            code,
+            message,
+            item_id=item_id,
+            path=path,
+            details=details,
+        )
 
 
 def normalized_job_hash(job: Job) -> str:
@@ -1089,6 +1154,76 @@ def normalized_job_hash(job: Job) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(normalized).hexdigest()
+
+
+def render_plan_diff(plan: Plan, *, maximum_bytes: int | None = None) -> PlanDiff:
+    """Render a read-only unified diff from immutable before/after bytes."""
+
+    chunks: list[str] = []
+    for change in plan.file_changes:
+        before = (
+            ""
+            if change.before_content is None
+            else _decode_change_content(change.before_content, change.encoding)
+        )
+        after = _decode_change_content(change.content, change.encoding)
+        fromfile = (
+            "/dev/null"
+            if change.disposition is FileDisposition.CREATE
+            else f"a/{change.path.as_posix()}"
+        )
+        raw = difflib.unified_diff(
+            _normalize_newlines(before).splitlines(keepends=True),
+            _normalize_newlines(after).splitlines(keepends=True),
+            fromfile=fromfile,
+            tofile=f"b/{change.path.as_posix()}",
+            lineterm="\n",
+        )
+        chunks.extend(_render_diff_lines(raw))
+
+    rendered = "".join(chunks)
+    maximum = (
+        maximum_bytes
+        if maximum_bytes is not None
+        else plan.workspace.config.execution.max_command_output_bytes
+    )
+    if maximum < 0:
+        raise ValueError("maximum_bytes cannot be negative")
+    encoded = rendered.encode("utf-8")
+    if len(encoded) <= maximum:
+        return PlanDiff(text=rendered, truncated=False)
+    marker = b"\n[DIFF PREVIEW TRUNCATED BY PATCHSHUTTLE]\n"
+    if maximum <= len(marker):
+        text = marker[:maximum].decode("utf-8", errors="ignore")
+    else:
+        prefix = encoded[: maximum - len(marker)].decode("utf-8", errors="ignore")
+        text = prefix + marker.decode("utf-8")
+    return PlanDiff(text=text, truncated=True)
+
+
+def _render_diff_lines(lines) -> tuple[str, ...]:
+    rendered: list[str] = []
+    for index, line in enumerate(lines):
+        if index >= 2 and line[:1] in {" ", "+", "-"} and not line.endswith("\n"):
+            rendered.extend((line + "\n", "\\ No newline at end of file\n"))
+        else:
+            rendered.append(line)
+    return tuple(rendered)
+
+
+def _decode_change_content(raw: bytes, encoding: str) -> str:
+    if encoding == "utf-8-sig":
+        return raw.decode("utf-8-sig")
+    bom_codecs = (
+        (_UTF32_LE_BOM, "utf-32-le"),
+        (_UTF32_BE_BOM, "utf-32-be"),
+        (_UTF16_LE_BOM, "utf-16-le"),
+        (_UTF16_BE_BOM, "utf-16-be"),
+    )
+    for bom, codec in bom_codecs:
+        if raw.startswith(bom):
+            return raw[len(bom) :].decode(codec)
+    return raw.decode(encoding)
 
 
 def _normalize_newlines(value: str) -> str:
@@ -1115,6 +1250,108 @@ def _non_overlapping_positions(text: str, value: str) -> tuple[int, ...]:
         start = position + len(value)
 
 
+def _occurrence_diagnostics(
+    text: str,
+    needle: str,
+    *,
+    actual: int,
+) -> tuple[str, ...]:
+    if actual:
+        positions = _non_overlapping_positions(text, needle)[:3]
+        return (
+            "  exact_matches:",
+            *(
+                "    - line: "
+                f"{_line_number(text, position)} preview: {_preview(needle)}"
+                for position in positions
+            ),
+        )
+
+    matches = _closest_matches(text, needle, limit=3)
+    if not matches:
+        return ("  closest_matches: none",)
+    return (
+        "  closest_matches:",
+        *(
+            "    - line: "
+            f"{line} similarity: {similarity:.1f}% preview: {_preview(candidate)}"
+            for line, similarity, candidate in matches
+        ),
+    )
+
+
+def _closest_matches(
+    text: str,
+    needle: str,
+    *,
+    limit: int,
+) -> tuple[tuple[int, float, str], ...]:
+    source_lines = text.splitlines()
+    if not source_lines:
+        return ()
+    needle_lines = needle.splitlines() or [needle]
+    width = max(1, len(needle_lines))
+    starts = _diagnostic_candidate_starts(source_lines, needle, width=width)
+    expected = needle.rstrip("\n")
+    ranked: list[tuple[float, int, str]] = []
+    for start in starts:
+        candidate = "\n".join(source_lines[start : start + width])
+        similarity = difflib.SequenceMatcher(
+            None,
+            expected,
+            candidate,
+            autojunk=False,
+        ).ratio()
+        ranked.append((similarity, start + 1, candidate))
+    ranked.sort(key=lambda item: (-item[0], item[1], item[2]))
+    return tuple(
+        (line, similarity * 100, candidate)
+        for similarity, line, candidate in ranked[:limit]
+    )
+
+
+def _diagnostic_candidate_starts(
+    lines: list[str],
+    needle: str,
+    *,
+    width: int,
+) -> tuple[int, ...]:
+    maximum = max(1, len(lines) - width + 1)
+    if maximum <= 5_000:
+        return tuple(range(maximum))
+
+    tokens = sorted(
+        set(re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", needle)),
+        key=lambda value: (-len(value), value),
+    )
+    if tokens:
+        anchor = tokens[0].casefold()
+        candidates: set[int] = set()
+        for line_index, line in enumerate(lines):
+            if anchor not in line.casefold():
+                continue
+            start_min = max(0, line_index - width + 1)
+            start_max = min(line_index, maximum - 1)
+            candidates.update(range(start_min, start_max + 1))
+            if len(candidates) >= 5_000:
+                break
+        if candidates:
+            return tuple(sorted(candidates)[:5_000])
+
+    step = max(1, maximum // 5_000)
+    sampled = tuple(range(0, maximum, step))[:4_999]
+    return tuple(dict.fromkeys((*sampled, maximum - 1)))
+
+
+def _line_number(text: str, position: int) -> int:
+    return text.count("\n", 0, position) + 1
+
+
+def _preview(value: str, maximum: int = 180) -> str:
+    rendered = repr(value)
+    return rendered if len(rendered) <= maximum else rendered[: maximum - 3] + "..."
+
+
 def _is_adjacent(
     text: str,
     position: int,
@@ -1136,9 +1373,11 @@ __all__ = [
     "NewlineStyle",
     "PathFingerprint",
     "Plan",
+    "PlanDiff",
     "PlannedAction",
     "PlannedCheck",
     "PlannedFileChange",
     "normalized_job_hash",
     "plan_job",
+    "render_plan_diff",
 ]

@@ -116,6 +116,39 @@ def test_success_runs_isort_black_then_final_checks_and_retains_hashes(
     assert manifest(workspace)["status"] == "COMPLETED"
 
 
+def test_pep263_python_source_reaches_real_isort_and_black(
+    workspace: Workspace,
+) -> None:
+    target = workspace.root / "latin1_module.py"
+    target.write_bytes(
+        "# coding: latin-1\nNAME = 'café'\nVALUES=[1,2]\n".encode("latin-1")
+    )
+    plan = patch_plan(
+        workspace,
+        actions=[
+            {
+                "replace_exact": {
+                    "path": "latin1_module.py",
+                    "old": "VALUES=[1,2]",
+                    "new": "VALUES=[2,1]",
+                }
+            }
+        ],
+        checks=[{"compileall": {"paths": ["latin1_module.py"], "quiet": 2}}],
+    )
+
+    result = execute_change_transaction(plan, approved=True)
+
+    assert result.status is TransactionStatus.APPLIED
+    assert [item.status for item in result.formatting_results] == [
+        FormatterStatus.PASSED,
+        FormatterStatus.PASSED,
+    ]
+    assert target.read_bytes().decode("latin-1") == (
+        '# coding: latin-1\nNAME = "café"\nVALUES = [2, 1]\n'
+    )
+
+
 def test_non_python_change_skips_formatters_and_duplicate_checks(
     workspace: Workspace,
 ) -> None:
