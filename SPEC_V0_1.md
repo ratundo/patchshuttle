@@ -15,8 +15,15 @@
 > end-to-end workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
 > Version `0.1.0a2` remains an alpha pre-release, not stable `0.1.0`.
 > Unreleased next-alpha work adds AI-facing mismatch diagnostics, resolved
-> diff previews, Python formatter preflight, and opt-in changed-HTML linting;
-> those changes are not part of the published `0.1.0a2` evidence.
+> diff previews, Python formatter preflight, opt-in changed-HTML linting,
+> early failure logs, explicit workspace routing, and installed-contract
+> self-documentation; those changes are not part of the published `0.1.0a2`
+> evidence.
+> The current unreleased source passed 744 local tests on Linux/Python 3.12
+> with one environment-only skip, 100% statement and branch coverage, release
+> artifact validation, `twine check`, and a clean wheel smoke test. Its required
+> hosted Windows/Ubuntu evidence is separate from the published `0.1.0a2`
+> qualification and must be recorded before the next release.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -61,10 +68,13 @@ A validation, policy, action, lint, check, or formatting failure stops the job.
 PatchShuttle then restores the files covered by its transaction unless the user
 explicitly selected `--keep-changes`.
 
-### 2.4 Every run is auditable
+### 2.4 Recorded attempts are auditable
 
-Every validation or execution attempt creates a human-readable UTF-8 log with
-stable status codes and a compact AI handoff section.
+Every execution attempt and every validation or planning failure after
+workspace resolution creates a human-readable UTF-8 log with stable status
+codes and a compact AI handoff section. Successful standalone `validate` and
+`plan` commands remain artifact-free. A workspace-discovery failure has no
+resolved workspace in which to write a log.
 
 ### 2.5 No hidden remote service
 
@@ -206,7 +216,22 @@ normal `init`.
 Running `init` again must not overwrite user-edited configuration, jobs, logs,
 protocol guides, or backups.
 
-### 8.3 Generated structure
+### 8.3 Explicit workspace routing
+
+Workspace-aware CLI commands accept a global option before the command:
+
+```bash
+patchshuttle --workspace PATH COMMAND [ARGS]
+```
+
+An explicit path is loaded as the exact workspace root. Without it,
+PatchShuttle discovers the nearest initialized current directory or parent. If
+implicit discovery fails, the CLI may inspect at most 100 direct child entries
+and report at most three valid initialized candidates. Candidate discovery is
+advisory and never selects or executes against a child automatically. Job-file
+arguments remain relative to the process current directory.
+
+### 8.4 Generated structure
 
 ```text
 patches/
@@ -228,7 +253,7 @@ patches/
 The `patches` directory is protected from normal change actions. PatchShuttle
 itself may update its state, logs, archives, backups, and generated guides.
 
-### 8.4 Project identity
+### 8.5 Project identity
 
 Initialization creates a project identifier with this form:
 
@@ -1164,6 +1189,14 @@ For v0.1, all standard sections are present in their fixed order. An irrelevant
 section contains the single value `NOT_APPLICABLE`. This makes logs predictable
 for both people and AI consumers.
 
+Validation and planning failures that occur after a workspace is resolved use
+a smaller early-attempt format. The filename label is `VALIDATION_FAILED` or
+`PLAN_FAILED`, and the log contains attempt metadata plus stable `SUMMARY` and
+`PATCHSHUTTLE_AI_HANDOFF` sections. Invalid source is not archived as a valid
+job, no registry entry is created, and no project change or backup is reported.
+If writing the failure log also fails, the CLI preserves the primary failure
+and reports the operational-recording failure separately.
+
 CLI messages, logs, generated protocol files, and `AI_GUIDE.md` use English in
 v0.1. Localization is outside the first-release scope.
 
@@ -1285,9 +1318,10 @@ Source excerpts are included only when produced by an explicit audit job.
 ## 23. CLI contract
 
 ```text
+patchshuttle [--workspace PATH] COMMAND [ARGS]
 patchshuttle init [--new-project]
 patchshuttle validate JOB.psh.yaml
-patchshuttle plan JOB.psh.yaml
+patchshuttle plan JOB.psh.yaml [--diff]
 patchshuttle audit JOB.psh.yaml
 patchshuttle verify JOB.psh.yaml [--yes]
 patchshuttle run JOB.psh.yaml [--yes] [--keep-changes]
@@ -1296,6 +1330,9 @@ patchshuttle rollback JOB_ID [--yes]
 patchshuttle snapshot
 patchshuttle handoff
 patchshuttle logs --last
+patchshuttle capabilities
+patchshuttle schema
+patchshuttle explain TOPIC
 patchshuttle version
 ```
 
@@ -1303,13 +1340,18 @@ Command behavior:
 
 - `validate` parses and validates without reading target files beyond workspace
   identity and configuration;
-- `plan` performs all read-only planning and policy validation;
+- `plan` performs all in-memory planning and policy validation without writing
+  project source; a failed attempt may write its managed failure log;
 - `audit` requires `kind: audit`;
 - `verify` requires `kind: verify`;
 - `run` accepts all job kinds and is the universal executor;
 - `status` reads registry and recent logs;
 - `rollback` uses an existing backup manifest;
 - `logs --last` prints the path to the latest log;
+- `capabilities`, `schema`, and `explain` inspect the installed contract without
+  requiring a workspace;
+- `--workspace` applies to workspace-aware commands and must precede the
+  command name;
 - all commands support `--help` and `--version` where appropriate.
 
 ## 24. Public Python API
@@ -1371,6 +1413,7 @@ COMPLETED
 ALREADY_APPLIED
 NO_CHANGE
 VALIDATION_FAILED
+PLAN_FAILED
 PROJECT_MISMATCH
 PATCH_ID_CONFLICT
 POLICY_BLOCKED
@@ -1572,8 +1615,9 @@ has been tested through a documented end-to-end scenario.
 - bounded resolved previews through `plan --diff`;
 - PEP 263, isort, and Black planning preflight for changed Python files;
 - optional changed-HTML djLint preflight and transactional lint stage;
-- failed-plan logging, read-only capability discovery, and explicit workspace
-  selection remain separate planned follow-up work.
+- validation and planning failure logs with summary and AI handoff sections;
+- workspace-independent capability, schema, and operation discovery;
+- explicit workspace routing plus bounded, advisory direct-child hints.
 
 ### `0.1.0b1`
 

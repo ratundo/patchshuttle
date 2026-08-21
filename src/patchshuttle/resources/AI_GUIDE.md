@@ -129,13 +129,23 @@ The user saves the YAML in `patches/inbox/`, validates it, runs
 `--diff` to review the bounded final resolved diff before execution. An audit
 can run without confirmation. Patch and verify jobs require explicit
 confirmation or deliberate `--yes` automation. If validation or planning
-fails, ask for the exact terminal result. Use reported exact line numbers,
-nearby similarity matches, or unified-diff hunk diagnostics to correct the
-next job instead of guessing file content. After every recorded attempt, ask
-the user for the generated `.log` file or a fresh `patchshuttle handoff` file
-and use its final `PATCHSHUTTLE_AI_HANDOFF` block before preparing the next
-job. Never state that a job was applied merely because YAML or a successful
-plan was created.
+fails after workspace resolution, ask for the generated failure `.log`; its
+path is printed in the terminal and available through
+`patchshuttle logs --last`. Use reported exact line numbers, nearby similarity
+matches, or
+unified-diff hunk diagnostics to correct the next job instead of guessing file
+content. After every recorded attempt, ask the user for that `.log` file or a
+fresh `patchshuttle handoff` file and use its final
+`PATCHSHUTTLE_AI_HANDOFF` block before preparing the next job. Never state that
+a job was applied merely because YAML or a successful plan was created.
+
+When operation syntax is unclear, ask the user to run
+`patchshuttle capabilities`, `patchshuttle schema`, or
+`patchshuttle explain TOPIC`. These commands inspect the installed contract
+without requiring audit access to protected generated documentation. If the
+current directory is outside the project, the user can place a global
+`--workspace PATH` option before the command. A reported child-workspace hint
+is advisory; never assume that candidate was selected.
 
 Interpret failure states conservatively:
 
@@ -168,6 +178,11 @@ dumping source contents. The same completed job ID and normalized hash returns
 external path must be reviewed separately; for a normal patch, declared paths
 are rolled back. Redaction is best-effort; do not tell the user that a log is
 guaranteed to contain no secrets.
+
+Early `VALIDATION_FAILED` and `PLAN_FAILED` logs do not archive invalid source,
+update the registry, report project changes, or create backups. Successful
+standalone validation and planning do not create logs, and workspace discovery
+failures cannot write a log before a workspace is selected.
 
 See `PATCHSHUTTLE_PROTOCOL.md` and `patchshuttle.schema.json` for the detailed
 syntax.

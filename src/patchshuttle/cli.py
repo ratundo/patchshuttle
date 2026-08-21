@@ -1,7 +1,8 @@
 """Command-line entry point for PatchShuttle."""
 
+import json
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import click
 
@@ -15,6 +16,7 @@ from patchshuttle.errors import (
     PlanningErrorCode,
     PolicyError,
     WorkspaceError,
+    WorkspaceErrorCode,
 )
 from patchshuttle.execution import (
     RegisteredRunResult,
@@ -24,17 +26,35 @@ from patchshuttle.execution import (
     record_declined_plan,
     resolve_registered_job,
 )
-from patchshuttle.logging import latest_log_path
+from patchshuttle.logging import (
+    AttemptLogData,
+    current_run_clock,
+    latest_log_path,
+    write_attempt_log,
+)
 from patchshuttle.models import Job, JobKind
 from patchshuttle.operations import ManualRollbackResult, rollback_job
 from patchshuttle.parser import load_job
-from patchshuttle.planner import Plan, plan_job, render_plan_diff
+from patchshuttle.planner import (
+    Plan,
+    normalized_job_hash,
+    plan_job,
+    render_plan_diff,
+)
 from patchshuttle.registry import RegistryJobRecord, get_job, load_registry
+from patchshuttle.selfdoc import (
+    EXPLAIN_TOPICS,
+    render_capabilities,
+    render_explanation,
+    render_schema,
+)
 from patchshuttle.workspace import (
     CONFIG_RELATIVE_PATH,
     Workspace,
     discover_workspace,
+    find_child_workspaces,
     init_workspace,
+    load_workspace,
 )
 
 
@@ -43,7 +63,13 @@ from patchshuttle.workspace import (
     no_args_is_help=True,
 )
 @click.version_option(version=__version__, prog_name="patchshuttle")
-def main() -> None:
+@click.option(
+    "--workspace",
+    "workspace_path",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Use PATH as the exact workspace root for the selected command.",
+)
+def main(workspace_path: Path | None) -> None:
     """Run local, auditable workflows for AI-assisted project changes."""
 
 
@@ -52,6 +78,31 @@ def version() -> None:
     """Print the installed PatchShuttle version."""
 
     click.echo(f"PatchShuttle {__version__}")
+
+
+@main.command("capabilities")
+def capabilities_command() -> None:
+    """Print the installed protocol capabilities without a workspace."""
+
+    click.echo(render_capabilities(), nl=False)
+
+
+@main.command("schema")
+def schema_command() -> None:
+    """Print the exact installed protocol JSON Schema."""
+
+    click.echo(render_schema(), nl=False)
+
+
+@main.command("explain")
+@click.argument(
+    "topic",
+    type=click.Choice(EXPLAIN_TOPICS, case_sensitive=False),
+)
+def explain_command(topic: str) -> None:
+    """Explain one supported operation or workflow TOPIC."""
+
+    click.echo(render_explanation(topic), nl=False)
 
 
 @main.command("init")
@@ -64,7 +115,10 @@ def init_command(new_project: bool) -> None:
     """Initialize the current project without overwriting existing entries."""
 
     try:
-        result = init_workspace(Path.cwd(), new_project=new_project)
+        result = init_workspace(
+            _workspace_option() or Path.cwd(),
+            new_project=new_project,
+        )
     except WorkspaceError as error:
         click.echo(f"INIT_FAILED {error}", err=True)
         raise click.exceptions.Exit(3) from error
@@ -87,11 +141,7 @@ def init_command(new_project: bool) -> None:
 def validate_command(job_file: Path) -> None:
     """Validate JOB_FILE against the current workspace without changing files."""
 
-    try:
-        workspace = discover_workspace(Path.cwd())
-    except WorkspaceError as error:
-        click.echo(f"INVALID {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+    workspace = _require_cli_workspace(failure_prefix="INVALID")
 
     try:
         job = load_job(
@@ -99,14 +149,33 @@ def validate_command(job_file: Path) -> None:
             max_bytes=workspace.config.execution.max_job_bytes,
         )
     except JobError as error:
-        click.echo(f"INVALID {error}", err=True)
-        raise click.exceptions.Exit(2) from error
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix="INVALID",
+            command="validate",
+            job_file=job_file,
+            result="VALIDATION_FAILED",
+            failure_stage="VALIDATION",
+            failure_code=error.code.value,
+            exit_code=2,
+        )
 
     try:
         workspace.require_project_id(job.project_id)
     except WorkspaceError as error:
-        click.echo(f"INVALID {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix="INVALID",
+            command="validate",
+            job_file=job_file,
+            result="VALIDATION_FAILED",
+            failure_stage="VALIDATION",
+            failure_code=error.code.value,
+            exit_code=3,
+            job=job,
+        )
 
     click.echo(
         "\n".join(
@@ -134,7 +203,11 @@ def validate_command(job_file: Path) -> None:
 def plan_command(job_file: Path, show_diff: bool) -> None:
     """Plan JOB_FILE completely without changing the workspace."""
 
-    plan = _load_plan(job_file, failure_prefix="PLAN_FAILED")
+    plan = _load_plan(
+        job_file,
+        failure_prefix="PLAN_FAILED",
+        attempt_command="plan",
+    )
     click.echo(_render_plan(plan, show_diff=show_diff))
 
 
@@ -151,11 +224,10 @@ def logs_command(show_last: bool) -> None:
     if not show_last:
         raise click.UsageError("the --last option is required")
     try:
-        workspace = discover_workspace(Path.cwd())
+        workspace = _resolve_cli_workspace()
         path = latest_log_path(workspace)
     except WorkspaceError as error:
-        click.echo(f"LOGS_FAILED {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_workspace(error, failure_prefix="LOGS_FAILED")
     except ExecutionError as error:
         click.echo(f"LOGS_FAILED {error}", err=True)
         raise click.exceptions.Exit(execution_exit_code(error.code)) from error
@@ -167,11 +239,10 @@ def snapshot_command() -> None:
     """Create a bounded read-only project metadata snapshot."""
 
     try:
-        workspace = discover_workspace(Path.cwd())
+        workspace = _resolve_cli_workspace()
         result = create_snapshot(workspace)
     except WorkspaceError as error:
-        click.echo(f"SNAPSHOT_FAILED {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_workspace(error, failure_prefix="SNAPSHOT_FAILED")
     except ExecutionError as error:
         click.echo(
             _render_execution_error(error, prefix="SNAPSHOT_FAILED"),
@@ -195,11 +266,10 @@ def handoff_command() -> None:
     """Create one upload-friendly context log for an AI service."""
 
     try:
-        workspace = discover_workspace(Path.cwd())
+        workspace = _resolve_cli_workspace()
         result = create_handoff(workspace)
     except WorkspaceError as error:
-        click.echo(f"HANDOFF_FAILED {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_workspace(error, failure_prefix="HANDOFF_FAILED")
     except ExecutionError as error:
         click.echo(
             _render_execution_error(error, prefix="HANDOFF_FAILED"),
@@ -225,13 +295,12 @@ def status_command(job_id: str | None) -> None:
     """Show project-local registry state and the latest log path."""
 
     try:
-        workspace = discover_workspace(Path.cwd())
+        workspace = _resolve_cli_workspace()
         registry = load_registry(workspace)
         latest = _optional_latest_log(workspace)
         selected = get_job(registry, job_id) if job_id is not None else None
     except WorkspaceError as error:
-        click.echo(f"STATUS_FAILED {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_workspace(error, failure_prefix="STATUS_FAILED")
     except ExecutionError as error:
         click.echo(f"STATUS_FAILED {error}", err=True)
         raise click.exceptions.Exit(execution_exit_code(error.code)) from error
@@ -268,10 +337,9 @@ def rollback_command(job_id: str, yes: bool) -> None:
     """Restore one completed patch from its retained backup manifest."""
 
     try:
-        workspace = discover_workspace(Path.cwd())
+        workspace = _resolve_cli_workspace()
     except WorkspaceError as error:
-        click.echo(f"ROLLBACK_FAILED {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_workspace(error, failure_prefix="ROLLBACK_FAILED")
     approved = yes
     if not approved:
         try:
@@ -320,6 +388,7 @@ def run_command(job_file: Path, yes: bool, keep_changes: bool) -> None:
         yes=yes,
         keep_changes=keep_changes,
         failure_prefix="RUN_FAILED",
+        attempt_command="run",
     )
 
 
@@ -333,6 +402,7 @@ def audit_command(job_file: Path) -> None:
         yes=True,
         expected_kind=JobKind.AUDIT,
         failure_prefix="AUDIT_FAILED",
+        attempt_command="audit",
     )
 
 
@@ -351,7 +421,128 @@ def verify_command(job_file: Path, yes: bool) -> None:
         yes=yes,
         expected_kind=JobKind.VERIFY,
         failure_prefix="VERIFY_FAILED",
+        attempt_command="verify",
     )
+
+
+def _workspace_option() -> Path | None:
+    """Return the root-level workspace option for the active Click command."""
+
+    context = click.get_current_context().find_root()
+    return cast(Path | None, context.params.get("workspace_path"))
+
+
+def _resolve_cli_workspace() -> Workspace:
+    explicit = _workspace_option()
+    if explicit is not None:
+        return load_workspace(explicit)
+    return discover_workspace(Path.cwd())
+
+
+def _require_cli_workspace(*, failure_prefix: str) -> Workspace:
+    try:
+        return _resolve_cli_workspace()
+    except WorkspaceError as error:
+        _fail_workspace(error, failure_prefix=failure_prefix)
+
+
+def _fail_workspace(
+    error: WorkspaceError,
+    *,
+    failure_prefix: str,
+) -> NoReturn:
+    lines = [f"{failure_prefix} {error}"]
+    if (
+        _workspace_option() is None
+        and error.code is WorkspaceErrorCode.WORKSPACE_NOT_INITIALIZED
+    ):
+        try:
+            candidates = find_child_workspaces(Path.cwd())
+        except WorkspaceError:
+            candidates = ()
+        if candidates:
+            names = tuple(workspace.root.name for workspace in candidates)
+            displayed_names = tuple(
+                json.dumps(name, ensure_ascii=False) for name in names
+            )
+            lines.append(f"found_workspaces: {len(names)}")
+            lines.extend(f"  - {name}" for name in displayed_names)
+            lines.append(
+                "hint: patchshuttle --workspace " f"{displayed_names[0]} COMMAND [ARGS]"
+            )
+    click.echo("\n".join(lines), err=True)
+    raise click.exceptions.Exit(3) from error
+
+
+def _record_attempt_failure(
+    workspace: Workspace,
+    *,
+    command: str,
+    job_file: Path,
+    result: str,
+    failure_stage: str,
+    failure_code: str,
+    exit_code: int,
+    error: Exception,
+    job: Job | None = None,
+) -> None:
+    try:
+        log_path = write_attempt_log(
+            AttemptLogData(
+                workspace=workspace,
+                clock=current_run_clock(workspace),
+                command=command,
+                job_file=job_file,
+                result=result,
+                failure_stage=failure_stage,
+                failure_code=failure_code,
+                exit_code=exit_code,
+                error=str(error),
+                job=job,
+                job_hash=(normalized_job_hash(job) if job is not None else None),
+                failed_item=getattr(error, "item_id", None),
+                failed_path=(
+                    getattr(error, "path", None) or getattr(error, "field_path", None)
+                ),
+            )
+        )
+    except ExecutionError as record_error:
+        click.echo(f"log_recording_failed: {record_error}", err=True)
+        return
+    click.echo(f"log: {log_path.as_posix()}", err=True)
+
+
+def _fail_attempt(
+    workspace: Workspace,
+    error: Exception,
+    *,
+    failure_prefix: str,
+    command: str,
+    job_file: Path,
+    result: str,
+    failure_stage: str,
+    failure_code: str,
+    exit_code: int,
+    job: Job | None = None,
+) -> NoReturn:
+    rendered = (
+        _render_execution_error(error, prefix=failure_prefix)
+        if isinstance(error, ExecutionError)
+        else f"{failure_prefix} {error}"
+    )
+    click.echo(rendered, err=True)
+    _record_attempt_failure(
+        workspace,
+        command=command,
+        job_file=job_file,
+        result=result,
+        failure_stage=failure_stage,
+        failure_code=failure_code,
+        exit_code=exit_code,
+        error=error,
+        job=job,
+    )
+    raise click.exceptions.Exit(exit_code) from error
 
 
 def _execute_job_command(
@@ -359,19 +550,34 @@ def _execute_job_command(
     *,
     yes: bool,
     failure_prefix: str,
+    attempt_command: str,
     expected_kind: JobKind | None = None,
     keep_changes: bool = False,
 ) -> None:
     """Shared universal execution flow for run, audit, and verify."""
 
-    workspace, job = _load_workspace_job(job_file, failure_prefix=failure_prefix)
+    workspace, job = _load_workspace_job(
+        job_file,
+        failure_prefix=failure_prefix,
+        attempt_command=attempt_command,
+    )
     if expected_kind is not None and job.kind is not expected_kind:
         error = ExecutionError(
             ExecutionErrorCode.JOB_KIND_UNSUPPORTED,
-            f"this command requires a {expected_kind.value} job",
+            f"this command requires kind: {expected_kind.value}",
         )
-        click.echo(_render_execution_error(error, prefix=failure_prefix), err=True)
-        raise click.exceptions.Exit(execution_exit_code(error.code))
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix=failure_prefix,
+            command=attempt_command,
+            job_file=job_file,
+            result="VALIDATION_FAILED",
+            failure_stage="VALIDATION",
+            failure_code=error.code.value,
+            exit_code=execution_exit_code(error.code),
+            job=job,
+        )
     try:
         registered = resolve_registered_job(
             workspace,
@@ -388,7 +594,9 @@ def _execute_job_command(
     plan = _plan_loaded_job(
         workspace,
         job,
+        job_file=job_file,
         failure_prefix=failure_prefix,
+        attempt_command=attempt_command,
     )
     click.echo(_render_plan(plan))
 
@@ -437,23 +645,35 @@ def _execute_job_command(
     click.echo(_render_run_result(result))
 
 
-def _load_plan(job_file: Path, *, failure_prefix: str) -> Plan:
+def _load_plan(
+    job_file: Path,
+    *,
+    failure_prefix: str,
+    attempt_command: str,
+) -> Plan:
     """Load and plan a job with the stable CLI exit-code mapping."""
 
-    workspace, job = _load_workspace_job(job_file, failure_prefix=failure_prefix)
-    return _plan_loaded_job(workspace, job, failure_prefix=failure_prefix)
+    workspace, job = _load_workspace_job(
+        job_file,
+        failure_prefix=failure_prefix,
+        attempt_command=attempt_command,
+    )
+    return _plan_loaded_job(
+        workspace,
+        job,
+        job_file=job_file,
+        failure_prefix=failure_prefix,
+        attempt_command=attempt_command,
+    )
 
 
 def _load_workspace_job(
     job_file: Path,
     *,
     failure_prefix: str,
+    attempt_command: str,
 ) -> tuple[Workspace, Job]:
-    try:
-        workspace = discover_workspace(Path.cwd())
-    except WorkspaceError as error:
-        click.echo(f"{failure_prefix} {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+    workspace = _require_cli_workspace(failure_prefix=failure_prefix)
 
     try:
         job = load_job(
@@ -461,13 +681,32 @@ def _load_workspace_job(
             max_bytes=workspace.config.execution.max_job_bytes,
         )
     except JobError as error:
-        click.echo(f"{failure_prefix} {error}", err=True)
-        raise click.exceptions.Exit(2) from error
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix=failure_prefix,
+            command=attempt_command,
+            job_file=job_file,
+            result="VALIDATION_FAILED",
+            failure_stage="VALIDATION",
+            failure_code=error.code.value,
+            exit_code=2,
+        )
     try:
         workspace.require_project_id(job.project_id)
     except WorkspaceError as error:
-        click.echo(f"{failure_prefix} {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix=failure_prefix,
+            command=attempt_command,
+            job_file=job_file,
+            result="VALIDATION_FAILED",
+            failure_stage="VALIDATION",
+            failure_code=error.code.value,
+            exit_code=3,
+            job=job,
+        )
     return workspace, job
 
 
@@ -475,19 +714,52 @@ def _plan_loaded_job(
     workspace: Workspace,
     job: Job,
     *,
+    job_file: Path,
     failure_prefix: str,
+    attempt_command: str,
 ) -> Plan:
     try:
         plan = plan_job(job, workspace)
     except WorkspaceError as error:
-        click.echo(f"{failure_prefix} {error}", err=True)
-        raise click.exceptions.Exit(3) from error
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix=failure_prefix,
+            command=attempt_command,
+            job_file=job_file,
+            result="PLAN_FAILED",
+            failure_stage="PLAN",
+            failure_code=error.code.value,
+            exit_code=3,
+            job=job,
+        )
     except PolicyError as error:
-        click.echo(f"{failure_prefix} {error}", err=True)
-        raise click.exceptions.Exit(4) from error
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix=failure_prefix,
+            command=attempt_command,
+            job_file=job_file,
+            result="PLAN_FAILED",
+            failure_stage="PLAN",
+            failure_code=error.code.value,
+            exit_code=4,
+            job=job,
+        )
     except PlanningError as error:
-        click.echo(f"{failure_prefix} {error}", err=True)
-        raise click.exceptions.Exit(_planning_exit_code(error.code)) from error
+        exit_code = _planning_exit_code(error.code)
+        _fail_attempt(
+            workspace,
+            error,
+            failure_prefix=failure_prefix,
+            command=attempt_command,
+            job_file=job_file,
+            result="PLAN_FAILED",
+            failure_stage="PLAN",
+            failure_code=error.code.value,
+            exit_code=exit_code,
+            job=job,
+        )
 
     return plan
 

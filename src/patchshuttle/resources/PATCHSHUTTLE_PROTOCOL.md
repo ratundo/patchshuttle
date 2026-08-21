@@ -74,6 +74,16 @@ rejects absolute paths, parent traversal, protected or ignored targets,
 symbolic-link escapes, binary targets, special files, and files outside
 configured limits.
 
+Use `patchshuttle capabilities`, `patchshuttle schema`, and
+`patchshuttle explain replace_exact` to inspect the installed protocol without
+reading generated protected files. Workspace-aware commands accept an exact
+root as a global option before the command:
+`patchshuttle --workspace PATH COMMAND [ARGS]`. Without it, PatchShuttle
+searches the current directory and its parents. A bounded direct-child hint may
+be printed after failed implicit discovery, but no candidate is selected
+automatically. Job-file arguments remain relative to the process current
+directory.
+
 Use `patchshuttle validate patches/inbox/JOB.psh.yaml`, then review
 `patchshuttle plan patches/inbox/JOB.psh.yaml`. Planning is read-only and does
 not mean the job was applied. Add `--diff` to display a bounded unified preview
@@ -116,3 +126,10 @@ AI context, `logs --last` for the newest log, and `status [JOB_ID]` for registry
 state. Log redaction is best-effort, so review a log before sharing it. The JSON
 Schema in `patchshuttle.schema.json` is the exact structural schema produced by
 the installed model version.
+
+A validation or planning failure after workspace resolution writes a smaller
+timestamped `VALIDATION_FAILED` or `PLAN_FAILED` log with `SUMMARY` and
+`PATCHSHUTTLE_AI_HANDOFF` sections. It does not archive invalid source, update
+the registry, claim project changes, or create a backup. Successful standalone
+validation and planning remain artifact-free. If workspace discovery itself
+fails, there is no selected workspace in which to write the failure log.

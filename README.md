@@ -19,6 +19,12 @@ records the result for the next iteration.
 > production PyPI publication, and a post-release smoke installation are
 > complete. A documented ChatGPT end-to-end workflow passed on 2026-08-17.
 
+> [!NOTE]
+> The current unreleased source adds AI-facing planner diagnostics, formatter
+> preflight, optional HTML linting, failure-attempt logs, explicit workspace
+> routing, and workspace-independent self-documentation. These additions are
+> not part of the published `0.1.0a2` package yet.
+
 ## Design goals
 
 - Keep every change local and explicitly initiated by the user.
@@ -81,6 +87,22 @@ patchshuttle version
 patchshuttle --help
 ```
 
+In the current unreleased source, an AI or user can inspect the installed
+contract without initializing a workspace or reading protected generated
+files:
+
+```bash
+patchshuttle capabilities
+patchshuttle schema
+patchshuttle explain replace_exact
+patchshuttle explain apply_diff
+```
+
+`capabilities` prints the finite protocol surface and safety boundaries,
+`schema` prints the exact deterministic JSON Schema produced by the installed
+job model, and `explain` describes supported high-friction actions and workflow
+topics. Run `patchshuttle explain --help` for the finite topic list.
+
 ## Initialize a workspace
 
 Run this inside an existing project:
@@ -94,6 +116,21 @@ For a new project, start in an empty directory:
 ```bash
 patchshuttle init --new-project
 ```
+
+Every workspace-aware command can also receive an exact root before the
+command name:
+
+```bash
+patchshuttle --workspace path/to/project init
+patchshuttle --workspace path/to/project handoff
+```
+
+Without this option, PatchShuttle searches the current directory and its
+parents. If no workspace is found, the unreleased CLI performs a bounded scan
+of direct child directories and may print candidate names and a rerun hint. It
+does not select or execute against a candidate automatically.
+`JOB_FILE` arguments remain relative to the process current directory; the
+workspace option changes workspace selection, not normal path-argument rules.
 
 `--new-project` also accepts a real `.git` directory and the recognized regular
 metadata files `.DS_Store`, `Thumbs.db`, `desktop.ini`, and AppleDouble `._*`
@@ -152,10 +189,15 @@ INVALID [JOB_SCHEMA_INVALID] $.protocol: Input should be 1
 YAML and schema errors exit with code `2`. Missing workspace, invalid local
 configuration, and project ID mismatch errors exit with code `3`.
 
-The current `validate` command reads the nearest workspace configuration,
+The current `validate` command reads the selected workspace configuration,
 applies its `max_job_bytes` limit, safely loads the YAML, validates the typed
-model, and compares the job project ID. It does not plan or execute actions,
-modify project files, or create logs.
+model, and compares the job project ID. It does not plan or execute actions or
+modify project source files. A successful validation does not create an
+operational artifact. In the unreleased source, a validation failure after the
+workspace is resolved writes a timestamped `VALIDATION_FAILED` log containing
+the stable error, summary, and AI handoff. It does not archive invalid source
+as a job or update the registry. A workspace-discovery failure has no resolved
+workspace in which to write a log.
 
 The public constructors validate declarative Python data without reading or
 modifying project files:
@@ -241,7 +283,10 @@ Planning performs the complete implemented read-only preflight:
 
 Policy blocks exit with code `4`, planning failures with code `5`, and missing
 check profiles or dependencies with code `9`. A successful plan exits with
-code `0`.
+code `0`. In the unreleased source, a failed planning attempt after workspace
+resolution writes a timestamped `PLAN_FAILED` log. The terminal result prints
+its path, and `patchshuttle logs --last` returns that failure log until a newer
+recorded artifact is written.
 
 The same planner is available from Python:
 
@@ -263,10 +308,11 @@ print(render_plan_diff(plan).text)
 
 `Plan`, its actions, checks, fingerprints, and final file changes are immutable.
 Planning does not create target directories or files, execute audits or checks,
-write formatter or linter output, create backups or logs, or alter registry
-state. It may invoke formatter libraries and the optional HTML linter against
-in-memory final content for compatibility preflight. A successful plan
-therefore does not mean that the job was applied.
+write formatter or linter output, create backups, or alter registry state. A
+successful plan does not create a log. A failed plan may create only its
+managed failure log. Planning may invoke formatter libraries and the optional
+HTML linter against in-memory final content for compatibility preflight. A
+successful plan therefore does not mean that the job was applied.
 
 ## Execute jobs
 
@@ -448,11 +494,22 @@ authorization-header, and private-key shapes are masked when redaction is
 enabled. Redaction is best-effort and is not a guarantee that a log contains no
 secrets; review a log before uploading it to any AI service.
 
+Early `VALIDATION_FAILED` and `PLAN_FAILED` logs use a smaller fixed attempt
+format with `SUMMARY` and `PATCHSHUTTLE_AI_HANDOFF` sections. They record no
+project changes, backup, job archive, or registry update. An explicitly
+declined reviewed plan continues to use the full job log and exact failed-job
+archive with result `USER_DECLINED`.
+
 Find the latest upload-friendly log:
 
 ```bash
 patchshuttle logs --last
 ```
+
+This selects the newest recorded run, snapshot, handoff, or failure-attempt
+log. Commands that intentionally produce no artifact, including successful
+`validate`, successful `plan`, `version`, `capabilities`, `schema`, and
+`explain`, do not replace it.
 
 Inspect all registered jobs or one job ID:
 

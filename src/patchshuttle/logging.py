@@ -21,6 +21,13 @@ from patchshuttle.linters import HtmlLintResult
 from patchshuttle.models import Job
 from patchshuttle.planner import ActionDisposition, Plan
 from patchshuttle.runner import TransactionResult
+from patchshuttle.selfdoc import (
+    AUDIT_ACTIONS,
+    CHANGE_ACTIONS,
+    CHECKS,
+    JOB_KINDS,
+    format_capability_list,
+)
 from patchshuttle.workspace import Workspace
 
 STANDARD_SECTIONS = (
@@ -42,18 +49,10 @@ STANDARD_SECTIONS = (
     "PATCHSHUTTLE_AI_HANDOFF",
 )
 
-_AVAILABLE_JOB_KINDS = "[audit, patch, verify]"
-_AVAILABLE_AUDIT_ACTIONS = (
-    "[tree, read, search, find_files, file_info, hash, git_status, environment]"
-)
-_AVAILABLE_CHANGE_ACTIONS = (
-    "[create_directory, create_file, replace_exact, insert_before, insert_after, "
-    "delete_exact, apply_diff]"
-)
-_AVAILABLE_CHECKS = (
-    "[compileall, pytest, unittest, django_check, django_migrations_check, "
-    "django_test, import_check, profile]"
-)
+_AVAILABLE_JOB_KINDS = format_capability_list(JOB_KINDS)
+_AVAILABLE_AUDIT_ACTIONS = format_capability_list(AUDIT_ACTIONS)
+_AVAILABLE_CHANGE_ACTIONS = format_capability_list(CHANGE_ACTIONS)
+_AVAILABLE_CHECKS = format_capability_list(CHECKS)
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----.*?" r"-----END \1-----",
     re.DOTALL,
@@ -123,6 +122,25 @@ class ManualRollbackLogRecord:
     removed_files: tuple[PurePosixPath, ...] = ()
     removed_directories: tuple[PurePosixPath, ...] = ()
     unresolved: tuple[PurePosixPath, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptLogData:
+    """Bounded metadata for a validation or planning failure."""
+
+    workspace: Workspace
+    clock: RunClock
+    command: str
+    job_file: Path
+    result: str
+    failure_stage: str
+    failure_code: str
+    exit_code: int
+    error: str
+    job: Job | None = None
+    job_hash: str | None = None
+    failed_item: str | None = None
+    failed_path: str | None = None
 
 
 def current_run_clock(workspace: Workspace) -> RunClock:
@@ -198,6 +216,81 @@ def write_named_log(
         rendered = redact_text(rendered)
     _write_new_file(path, rendered.encode("utf-8"))
     return path
+
+
+def write_attempt_log(data: AttemptLogData) -> Path:
+    """Write an AI-readable log for an early validation or planning failure."""
+
+    if data.result not in {"VALIDATION_FAILED", "PLAN_FAILED"}:
+        raise ValueError("attempt log result is invalid")
+    redaction = (
+        "BEST_EFFORT_ENABLED"
+        if data.workspace.config.logging.redact_known_secrets
+        else "DISABLED_BY_LOCAL_POLICY"
+    )
+    job_id = data.job.id if data.job is not None else "UNKNOWN"
+    kind = data.job.kind.value if data.job is not None else "UNKNOWN"
+    content = "\n".join(
+        (
+            "=== PATCHSHUTTLE_ATTEMPT ===",
+            f"patchshuttle_version: {__version__}",
+            "protocol: 1",
+            f"timestamp: {data.clock.iso_timestamp}",
+            f"redaction: {redaction}",
+            "redaction_guarantee: NONE",
+            f"project_id: {data.workspace.project_id}",
+            f"workspace_root: {data.workspace.root.as_posix()}",
+            f"command: {_scalar(data.command)}",
+            f"job_file: {_scalar(data.job_file.as_posix())}",
+            f"job_id: {job_id}",
+            "job_project_id: "
+            + (data.job.project_id if data.job is not None else "UNKNOWN"),
+            f"job_hash: {data.job_hash or 'UNKNOWN'}",
+            f"kind: {kind}",
+            "error:",
+            *(f"  {line}" for line in data.error.replace("\r", "\\r").split("\n")),
+            "archived_job_copy: NOT_APPLICABLE",
+            "registry_updated: false",
+            "",
+            "=== SUMMARY ===",
+            f"result: {data.result}",
+            f"failure_stage: {data.failure_stage}",
+            f"failure_code: {data.failure_code}",
+            f"failed_item: {_scalar(data.failed_item or 'NOT_APPLICABLE')}",
+            f"failed_path: {_scalar(data.failed_path or 'NOT_APPLICABLE')}",
+            f"exit_code: {data.exit_code}",
+            "changed_files: []",
+            "created_files: []",
+            "created_directories: []",
+            "rollback_status: NOT_STARTED",
+            "next_recommended_step: return_this_log_to_the_ai_for_a_corrected_job",
+            "",
+            "=== PATCHSHUTTLE_AI_HANDOFF ===",
+            "protocol: 1",
+            f"project_id: {data.workspace.project_id}",
+            f"job_id: {job_id}",
+            f"job_hash: {data.job_hash or 'UNKNOWN'}",
+            f"kind: {kind}",
+            f"result: {data.result}",
+            f"failure_stage: {data.failure_stage}",
+            f"failure_code: {data.failure_code}",
+            f"failed_item: {_scalar(data.failed_item or 'NOT_APPLICABLE')}",
+            f"failed_path: {_scalar(data.failed_path or 'NOT_APPLICABLE')}",
+            "rollback: NOT_STARTED",
+            f"available_job_kinds: {_AVAILABLE_JOB_KINDS}",
+            f"available_audit_actions: {_AVAILABLE_AUDIT_ACTIONS}",
+            f"available_change_actions: {_AVAILABLE_CHANGE_ACTIONS}",
+            f"available_checks: {_AVAILABLE_CHECKS}",
+            "next_expected_response: corrected_patch_or_audit",
+            "=== END_PATCHSHUTTLE_AI_HANDOFF ===",
+        )
+    )
+    return write_named_log(
+        data.workspace,
+        clock=data.clock,
+        label=data.result,
+        content=content,
+    )
 
 
 def latest_log_path(workspace: Workspace) -> Path:
@@ -778,6 +871,7 @@ def _utc_now() -> datetime:
 
 
 __all__ = [
+    "AttemptLogData",
     "ManualRollbackLogRecord",
     "RunClock",
     "RunLogData",
@@ -788,4 +882,5 @@ __all__ = [
     "redact_text",
     "write_run_log",
     "write_named_log",
+    "write_attempt_log",
 ]

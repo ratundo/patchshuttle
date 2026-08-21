@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from dataclasses import dataclass
 from enum import Enum
 from importlib import resources
@@ -41,6 +42,7 @@ _MANAGED_FILES = (
     Path("patches/examples/PATCH-EXAMPLE.psh.yaml"),
 )
 _OS_METADATA_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
+_WORKSPACE_HINT_CONFIG_MAX_BYTES = 1_000_000
 
 
 class WorkspaceInitStatus(str, Enum):
@@ -184,6 +186,55 @@ def discover_workspace(start: str | PathLike[str] = ".") -> Workspace:
         WorkspaceErrorCode.WORKSPACE_NOT_INITIALIZED,
         "no initialized PatchShuttle workspace was found",
     )
+
+
+def find_child_workspaces(
+    start: str | PathLike[str] = ".",
+    *,
+    max_entries: int = 100,
+    max_results: int = 3,
+) -> tuple[Workspace, ...]:
+    """Find bounded direct-child workspace candidates without following links."""
+
+    root = _resolve_directory(start)
+    found: list[Workspace] = []
+    scanned = 0
+    try:
+        for entry in root.iterdir():
+            if scanned >= max_entries or len(found) >= max_results:
+                break
+            scanned += 1
+            try:
+                entry_metadata = entry.lstat()
+            except OSError:
+                continue
+            if not stat.S_ISDIR(entry_metadata.st_mode):
+                continue
+            try:
+                patches_metadata = (entry / "patches").lstat()
+            except OSError:
+                continue
+            if not stat.S_ISDIR(patches_metadata.st_mode):
+                continue
+            try:
+                config_metadata = (entry / CONFIG_RELATIVE_PATH).lstat()
+            except OSError:
+                continue
+            if (
+                not stat.S_ISREG(config_metadata.st_mode)
+                or config_metadata.st_size > _WORKSPACE_HINT_CONFIG_MAX_BYTES
+            ):
+                continue
+            try:
+                found.append(load_workspace(entry))
+            except WorkspaceError:
+                continue
+    except OSError as exc:
+        raise WorkspaceError(
+            WorkspaceErrorCode.WORKSPACE_READ_FAILED,
+            "child workspace candidates could not be inspected",
+        ) from exc
+    return tuple(sorted(found, key=lambda workspace: workspace.root.name.casefold()))
 
 
 def _resolve_directory(path: str | PathLike[str]) -> Path:
@@ -377,6 +428,7 @@ __all__ = [
     "WorkspaceInitResult",
     "WorkspaceInitStatus",
     "discover_workspace",
+    "find_child_workspaces",
     "init_workspace",
     "load_workspace",
 ]

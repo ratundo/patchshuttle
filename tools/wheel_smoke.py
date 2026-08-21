@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -179,8 +180,26 @@ def smoke_wheel(wheel: Path, expected_version: str) -> None:
         reported = _run([str(cli), "version"], cwd=root).stdout.strip()
         if reported != f"PatchShuttle {expected_version}":
             raise RuntimeError(f"unexpected CLI version output: {reported!r}")
+        capabilities = _run([str(cli), "capabilities"], cwd=root).stdout
+        if "arbitrary_shell_action: unavailable" not in capabilities:
+            raise RuntimeError("installed capability output is incomplete")
+        schema = json.loads(_run([str(cli), "schema"], cwd=root).stdout)
+        if schema.get("title") != "Job":
+            raise RuntimeError("installed schema output is invalid")
+        explanation = _run(
+            [str(cli), "explain", "replace_exact"],
+            cwd=root,
+        ).stdout
+        if "topic: replace_exact" not in explanation:
+            raise RuntimeError("installed explanation output is invalid")
         program = "EXPECTED_VERSION = " + repr(expected_version) + "\n" + _WORKFLOW
         _run([str(python), "-c", textwrap.dedent(program)], cwd=root)
+        routed = _run(
+            [str(cli), "--workspace", str(root / "project"), "status"],
+            cwd=root,
+        ).stdout
+        if not routed.startswith("STATUS\n"):
+            raise RuntimeError("explicit workspace routing failed")
 
 
 def main() -> int:

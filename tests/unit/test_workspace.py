@@ -16,6 +16,7 @@ from patchshuttle.models import AUDIT_ACTION_NAMES, CHANGE_ACTION_NAMES
 from patchshuttle.workspace import (
     WorkspaceInitStatus,
     discover_workspace,
+    find_child_workspaces,
     init_workspace,
     load_workspace,
 )
@@ -96,12 +97,17 @@ def test_existing_project_initialization_creates_the_complete_scaffold(
         assert f"`{name}`" in ai_guide
     for name in CHECK_NAMES:
         assert f"`{name}`" in ai_guide
+    for command in ("capabilities", "schema", "explain TOPIC"):
+        assert f"`patchshuttle {command}`" in ai_guide
+    assert "`--workspace PATH`" in ai_guide
 
     protocol_guide = (tmp_path / "patches/PATCHSHUTTLE_PROTOCOL.md").read_text(
         encoding="utf-8"
     )
     assert PROJECT_ID in protocol_guide
     assert "{{PROJECT_ID}}" not in protocol_guide
+    assert "`patchshuttle capabilities`" in protocol_guide
+    assert "`patchshuttle --workspace PATH COMMAND [ARGS]`" in protocol_guide
 
 
 def test_repeated_initialization_does_not_overwrite_any_existing_entry(
@@ -232,6 +238,105 @@ def test_discovery_without_initialization_has_a_stable_error(tmp_path: Path) -> 
         discover_workspace(tmp_path)
 
     assert caught.value.code is WorkspaceErrorCode.WORKSPACE_NOT_INITIALIZED
+
+
+def test_child_workspace_candidates_are_direct_safe_valid_and_sorted(
+    tmp_path: Path,
+    fixed_project_id: None,
+) -> None:
+    alpha = tmp_path / "Alpha"
+    zeta = tmp_path / "zeta"
+    alpha.mkdir()
+    zeta.mkdir()
+    init_workspace(zeta)
+    init_workspace(alpha)
+
+    (tmp_path / "regular-file").write_text("not a directory\n", encoding="utf-8")
+    missing = tmp_path / "missing-config"
+    (missing / "patches").mkdir(parents=True)
+    missing_patches = tmp_path / "missing-patches"
+    missing_patches.mkdir()
+    unsafe_patches = tmp_path / "unsafe-patches"
+    unsafe_patches.mkdir()
+    (unsafe_patches / "patches").write_text("not a directory\n", encoding="utf-8")
+    unsafe = tmp_path / "unsafe-config"
+    (unsafe / "patches/patchshuttle.toml").mkdir(parents=True)
+    invalid = tmp_path / "invalid-config"
+    (invalid / "patches").mkdir(parents=True)
+    (invalid / "patches/patchshuttle.toml").write_text(
+        "invalid toml [",
+        encoding="utf-8",
+    )
+
+    found = find_child_workspaces(tmp_path)
+
+    assert tuple(item.root.name for item in found) == ("Alpha", "zeta")
+
+
+def test_child_workspace_candidate_scan_skips_oversized_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = tmp_path / "candidate"
+    (candidate / "patches").mkdir(parents=True)
+    (candidate / "patches/patchshuttle.toml").write_text("large", encoding="utf-8")
+    monkeypatch.setattr(workspace_module, "_WORKSPACE_HINT_CONFIG_MAX_BYTES", 1)
+
+    assert find_child_workspaces(tmp_path) == ()
+
+
+def test_child_workspace_candidate_scan_is_bounded(
+    tmp_path: Path,
+    fixed_project_id: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    third = tmp_path / "third"
+    for directory in (first, second, third):
+        directory.mkdir()
+        init_workspace(directory)
+
+    monkeypatch.setattr(Path, "iterdir", lambda path: iter((first, second, third)))
+
+    by_entries = find_child_workspaces(tmp_path, max_entries=1, max_results=3)
+    by_results = find_child_workspaces(tmp_path, max_entries=3, max_results=1)
+
+    assert tuple(item.root.name for item in by_entries) == ("first",)
+    assert tuple(item.root.name for item in by_results) == ("first",)
+
+
+def test_child_workspace_candidate_scan_reports_root_iteration_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_iteration(path: Path):
+        raise OSError("injected")
+
+    monkeypatch.setattr(Path, "iterdir", fail_iteration)
+
+    with pytest.raises(WorkspaceError) as caught:
+        find_child_workspaces(tmp_path)
+
+    assert caught.value.code is WorkspaceErrorCode.WORKSPACE_READ_FAILED
+
+
+def test_child_workspace_candidate_scan_skips_unreadable_entry_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unreadable = tmp_path / "unreadable"
+    original_lstat = Path.lstat
+    monkeypatch.setattr(Path, "iterdir", lambda path: iter((unreadable,)))
+
+    def fail_entry(path: Path):
+        if path == unreadable:
+            raise OSError("injected")
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", fail_entry)
+
+    assert find_child_workspaces(tmp_path) == ()
 
 
 def test_exact_workspace_load_requires_initialization(tmp_path: Path) -> None:

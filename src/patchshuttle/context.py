@@ -21,19 +21,12 @@ from patchshuttle.inventory import (
 from patchshuttle.logging import current_run_clock, write_named_log
 from patchshuttle.registry import Registry, load_registry
 from patchshuttle.runner import acquire_workspace_lock
+from patchshuttle.selfdoc import AUDIT_ACTIONS, CHANGE_ACTIONS, CHECKS
 from patchshuttle.workspace import Workspace
 
-_AUDIT_ACTIONS = (
-    "tree, read, search, find_files, file_info, hash, git_status, environment"
-)
-_CHANGE_ACTIONS = (
-    "create_directory, create_file, replace_exact, insert_before, insert_after, "
-    "delete_exact, apply_diff"
-)
-_CHECKS = (
-    "compileall, pytest, unittest, django_check, django_migrations_check, "
-    "django_test, import_check, profile"
-)
+_AUDIT_ACTIONS = ", ".join(AUDIT_ACTIONS)
+_CHANGE_ACTIONS = ", ".join(CHANGE_ACTIONS)
+_CHECKS = ", ".join(CHECKS)
 _TREE_LIMIT = 500
 _FILE_LIMIT = 2_000
 _HISTORY_LIMIT = 20

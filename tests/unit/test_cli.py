@@ -1,5 +1,6 @@
 """Contract tests for the implemented command-line surface."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,32 @@ def test_help_lists_only_the_implemented_commands() -> None:
     assert "init" in result.output
     assert "plan" in result.output
     assert "run" in result.output
+    assert "capabilities" in result.output
+    assert "schema" in result.output
+    assert "explain" in result.output
+    assert "--workspace DIRECTORY" in result.output
+
+
+def test_self_documentation_commands_do_not_require_a_workspace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    capabilities = CliRunner().invoke(main, ["capabilities"])
+    schema = CliRunner().invoke(main, ["schema"])
+    explanation = CliRunner().invoke(main, ["explain", "REPLACE_EXACT"])
+    invalid = CliRunner().invoke(main, ["explain", "unknown"])
+
+    assert capabilities.exit_code == 0
+    assert capabilities.stdout.startswith("PATCHSHUTTLE_CAPABILITIES\n")
+    assert capabilities.stderr == ""
+    assert schema.exit_code == 0
+    assert json.loads(schema.stdout)["title"] == "Job"
+    assert explanation.exit_code == 0
+    assert explanation.stdout.startswith("PATCHSHUTTLE_EXPLAIN\ntopic: replace_exact\n")
+    assert invalid.exit_code == 2
+    assert "Error: Invalid value for" in invalid.stderr
 
 
 def test_init_reports_created_workspace(tmp_path: Path, monkeypatch) -> None:
@@ -119,6 +146,61 @@ def test_init_reports_created_workspace(tmp_path: Path, monkeypatch) -> None:
     assert repeated.exit_code == 0
     assert repeated.stdout.endswith("created_entries: 0\n")
     assert repeated.stdout.startswith("UNCHANGED\n")
+
+
+def test_global_workspace_option_initializes_and_routes_exactly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(
+        workspace_module,
+        "generate_project_id",
+        lambda: "PSH-8F41C2A73D905E61",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    initialized = CliRunner().invoke(
+        main,
+        ["--workspace", str(project), "init"],
+    )
+    path = write_job(project)
+    validated = CliRunner().invoke(
+        main,
+        ["--workspace", str(project), "validate", str(path)],
+    )
+    status = CliRunner().invoke(
+        main,
+        ["--workspace", str(project), "status"],
+    )
+
+    assert initialized.exit_code == 0
+    assert initialized.stdout.startswith("INITIALIZED\n")
+    assert validated.exit_code == 0
+    assert validated.stdout.startswith("VALID\njob_id: AUDIT-001\n")
+    assert status.exit_code == 0
+    assert status.stdout.startswith("STATUS\nproject_id: PSH-8F41C2A73D905E61\n")
+
+
+def test_explicit_missing_workspace_does_not_use_an_implicit_candidate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    initialize_project(project, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        main,
+        ["--workspace", str(tmp_path / "missing"), "status"],
+    )
+
+    assert result.exit_code == 3
+    assert result.stderr.startswith("STATUS_FAILED [WORKSPACE_NOT_FOUND]")
+    assert "found_workspaces:" not in result.stderr
+    assert "hint:" not in result.stderr
 
 
 def test_init_new_project_records_new_origin(tmp_path: Path, monkeypatch) -> None:
@@ -203,7 +285,15 @@ def test_validate_reports_missing_file_with_stable_code(
 
     assert result.exit_code == 2
     assert result.stdout == ""
-    assert result.stderr == ("INVALID [JOB_FILE_NOT_FOUND] job file was not found\n")
+    assert result.stderr.startswith(
+        "INVALID [JOB_FILE_NOT_FOUND] job file was not found\nlog: "
+    )
+    log_path = Path(result.stderr.split("log: ", 1)[1].strip())
+    assert log_path.name.endswith("_VALIDATION_FAILED.log")
+    text = log_path.read_text("utf-8")
+    assert "command: validate\n" in text
+    assert "failure_code: JOB_FILE_NOT_FOUND\n" in text
+    assert "job_id: UNKNOWN\n" in text
 
 
 def test_validate_requires_initialized_workspace(tmp_path: Path, monkeypatch) -> None:
@@ -234,10 +324,16 @@ def test_validate_rejects_job_for_another_project(tmp_path: Path, monkeypatch) -
 
     assert result.exit_code == 3
     assert result.stdout == ""
-    assert result.stderr == (
+    assert result.stderr.startswith(
         "INVALID [PROJECT_ID_MISMATCH] $.project_id: "
         "job project_id does not match the initialized workspace\n"
     )
+    assert "\nlog: " in result.stderr
+    log_path = Path(result.stderr.split("log: ", 1)[1].strip())
+    text = log_path.read_text("utf-8")
+    assert "job_id: AUDIT-001\n" in text
+    assert "job_project_id: PSH-0000000000000000\n" in text
+    assert "failure_code: PROJECT_ID_MISMATCH\n" in text
 
 
 def test_validate_uses_workspace_job_size_limit(tmp_path: Path, monkeypatch) -> None:
@@ -390,6 +486,9 @@ def test_plan_maps_job_workspace_policy_planning_and_profile_errors(
     result = CliRunner().invoke(main, ["plan", str(wrong_type)])
     assert result.exit_code == 5
     assert result.stderr.startswith("PLAN_FAILED [TARGET_TYPE_INVALID]")
+    wrong_type_log = Path(result.stderr.split("log: ", 1)[1].strip()).read_text("utf-8")
+    assert "failed_item: action_001\n" in wrong_type_log
+    assert "failed_path: README.md\n" in wrong_type_log
 
     missing_profile = write_job(
         tmp_path,
@@ -444,6 +543,110 @@ def test_plan_requires_initialized_workspace_and_one_argument(
     missing_argument = CliRunner().invoke(main, ["plan"])
     assert missing_argument.exit_code == 2
     assert "Missing argument 'JOB_FILE'." in missing_argument.stderr
+
+
+def test_failed_plan_becomes_the_literal_latest_ai_readable_log(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+    path = write_job(
+        tmp_path,
+        VALID_AUDIT_YAML.replace(
+            "tree:\n      path: .\n      depth: 4",
+            "read:\n      path: .env",
+        ),
+    )
+
+    failed = CliRunner().invoke(main, ["plan", str(path)])
+    latest = CliRunner().invoke(main, ["logs", "--last"])
+
+    assert failed.exit_code == 4
+    assert latest.exit_code == 0
+    reported = Path(failed.stderr.split("log: ", 1)[1].strip())
+    assert Path(latest.stdout.strip()) == reported
+    text = reported.read_text("utf-8")
+    assert "command: plan\n" in text
+    assert f"job_file: {path.as_posix()}\n" in text
+    assert "result: PLAN_FAILED\n" in text
+    assert "failure_code: PATH_PROTECTED\n" in text
+    assert "failed_item: NOT_APPLICABLE\n" in text
+    assert "failed_path: .env\n" in text
+    assert "rollback: NOT_STARTED\n" in text
+    assert tuple((tmp_path / "patches/failed").iterdir()) == ()
+
+
+def test_run_planning_failure_records_the_invoked_command(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+    path = write_job(
+        tmp_path,
+        VALID_AUDIT_YAML.replace(
+            "tree:\n      path: .\n      depth: 4",
+            "read:\n      path: .env",
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["run", str(path), "--yes"])
+
+    assert result.exit_code == 4
+    assert result.stderr.startswith("RUN_FAILED [PATH_PROTECTED]")
+    log_path = Path(result.stderr.split("log: ", 1)[1].strip())
+    text = log_path.read_text("utf-8")
+    assert "command: run\n" in text
+    assert "failure_stage: PLAN\n" in text
+
+
+def test_kind_specific_command_mismatch_records_validation_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    path = write_job(tmp_path, VALID_PATCH_YAML)
+
+    result = CliRunner().invoke(main, ["audit", str(path)])
+
+    assert result.exit_code == 5
+    assert result.stderr.startswith(
+        "AUDIT_FAILED [JOB_KIND_UNSUPPORTED] "
+        "this command requires kind: audit\nrollback: NOT_STARTED\nlog: "
+    )
+    log_path = Path(result.stderr.split("log: ", 1)[1].strip())
+    text = log_path.read_text("utf-8")
+    assert "command: audit\n" in text
+    assert "result: VALIDATION_FAILED\n" in text
+    assert "failure_code: JOB_KIND_UNSUPPORTED\n" in text
+
+
+def test_attempt_log_failure_does_not_mask_the_primary_cli_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    path = tmp_path / "missing.psh.yaml"
+    monkeypatch.setattr(
+        cli_module,
+        "write_attempt_log",
+        lambda *args: (_ for _ in ()).throw(
+            ExecutionError(
+                ExecutionErrorCode.OPERATIONAL_RECORD_FAILED,
+                "injected log failure",
+            )
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["validate", str(path)])
+
+    assert result.exit_code == 2
+    assert result.stderr == (
+        "INVALID [JOB_FILE_NOT_FOUND] job file was not found\n"
+        "log_recording_failed: [OPERATIONAL_RECORD_FAILED] "
+        "injected log failure\n"
+    )
 
 
 def test_run_yes_executes_reviewed_patch_and_reports_all_stages(
@@ -942,6 +1145,83 @@ def test_logs_and_status_require_initialized_workspace(
     assert status.stderr.startswith("STATUS_FAILED [WORKSPACE_NOT_INITIALIZED]")
 
 
+def test_missing_workspace_reports_bounded_direct_child_hint_without_selecting(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "manager_cabinet"
+    project.mkdir()
+    initialize_project(project, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["handoff"])
+
+    assert result.exit_code == 3
+    assert result.stderr == (
+        "HANDOFF_FAILED [WORKSPACE_NOT_INITIALIZED] "
+        "no initialized PatchShuttle workspace was found\n"
+        "found_workspaces: 1\n"
+        '  - "manager_cabinet"\n'
+        'hint: patchshuttle --workspace "manager_cabinet" COMMAND [ARGS]\n'
+    )
+    assert tuple((project / "patches/logs").iterdir()) == ()
+
+
+def test_workspace_hint_failure_does_not_mask_the_discovery_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli_module,
+        "find_child_workspaces",
+        lambda *args: (_ for _ in ()).throw(
+            WorkspaceError(WorkspaceErrorCode.WORKSPACE_READ_FAILED, "injected")
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["status"])
+
+    assert result.exit_code == 3
+    assert result.stderr == (
+        "STATUS_FAILED [WORKSPACE_NOT_INITIALIZED] "
+        "no initialized PatchShuttle workspace was found\n"
+    )
+
+
+def test_workspace_hint_escapes_control_characters_in_candidate_names(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(
+        workspace_module,
+        "generate_project_id",
+        lambda: "PSH-8F41C2A73D905E61",
+    )
+    workspace = init_workspace(project).workspace
+    candidate = workspace_module.Workspace(
+        root=tmp_path / "project\ninjected: false",
+        config=workspace.config,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "find_child_workspaces",
+        lambda *args: (candidate,),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["status"])
+
+    assert result.exit_code == 3
+    assert '  - "project\\ninjected: false"\n' in result.stderr
+    assert (
+        'hint: patchshuttle --workspace "project\\ninjected: false" ' "COMMAND [ARGS]\n"
+    ) in result.stderr
+    assert "\ninjected: false\n" not in result.stderr
+
+
 def test_plan_maps_workspace_error_raised_during_planning(
     tmp_path: Path,
     monkeypatch,
@@ -958,7 +1238,9 @@ def test_plan_maps_workspace_error_raised_during_planning(
     result = CliRunner().invoke(main, ["plan", str(path)])
 
     assert result.exit_code == 3
-    assert result.stderr == "PLAN_FAILED [WORKSPACE_READ_FAILED] injected\n"
+    assert result.stderr.startswith(
+        "PLAN_FAILED [WORKSPACE_READ_FAILED] injected\nlog: "
+    )
 
 
 def test_run_renderer_accepts_result_without_operational_paths(

@@ -19,6 +19,15 @@ uses semantic versioning, including Python-compatible pre-release versions.
   isolated stdin-based planning preflight, fixed non-shell execution, log
   records, and automatic rollback on failure. Project djLint configuration
   cannot override this local PatchShuttle policy.
+- Validation and planning failures now write timestamped AI-readable attempt
+  logs after a workspace is resolved, so `logs --last` exposes the newest
+  recorded failure without archiving invalid job source or updating registry
+  state.
+- A global `--workspace PATH` option routes workspace-aware commands to an
+  exact root. Missing implicit workspaces can report bounded direct-child
+  candidates without selecting one automatically.
+- Workspace-independent `capabilities`, `schema`, and `explain TOPIC` commands
+  expose the installed protocol surface without weakening protected paths.
 
 ### Changed
 
