@@ -13,7 +13,7 @@
 > on 2026-08-16, followed by successful TestPyPI qualification, production
 > PyPI publication, and a clean installation smoke test. A recorded ChatGPT
 > end-to-end workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
-> Version `0.1.0a3` is the next alpha release candidate, not stable `0.1.0`.
+> Version `0.1.0a3` is a published alpha release, not stable `0.1.0`.
 > Compared with published `0.1.0a2`, it adds AI-facing mismatch diagnostics,
 > resolved diff previews, Python formatter preflight, opt-in changed-HTML
 > linting, early failure logs, explicit workspace routing, installed-contract
@@ -21,10 +21,12 @@
 > defensive runtime-cache cleanup, and guarded physical-line range actions.
 > The feature-complete source passed 834 local tests on Linux/Python 3.12 with
 > one environment-only skip, 100% statement and branch coverage, release
-> artifact validation, `twine check`, and a clean wheel smoke test. Its required
-> hosted Windows/Ubuntu matrix also passed on 2026-08-23. The final versioned
-> candidate must rerun that matrix and complete TestPyPI qualification before
-> production publication.
+> artifact validation, `twine check`, and a clean wheel smoke test. The final
+> versioned commit `06f3125aacd92ae32a832d34d86246a97fdc74f7` passed the
+> required hosted Windows/Ubuntu matrix, TestPyPI qualification, production
+> PyPI publication, and a clean Windows CPython 3.14 installation on
+> 2026-08-23. TestPyPI and production PyPI contain byte-identical `0.1.0a3`
+> distributions.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -1742,9 +1744,10 @@ has been tested through a documented end-to-end scenario.
 - canonical audit `hash_range` plus guarded `replace_range`, `delete_range`,
   and `insert_at_line` actions with strict sequential guards and no fuzzy
   relocation.
-- versioned release candidate prepared on 2026-08-23; final hosted CI,
-  TestPyPI, production publication, and clean index-installation evidence remain
-  separate external gates.
+- immutable artifacts from commit
+  `06f3125aacd92ae32a832d34d86246a97fdc74f7` passed final `main` and tag CI,
+  TestPyPI and production Trusted Publishing, and a clean production-index
+  installation on 2026-08-23.
 
 ### `0.1.0b1`
 
@@ -1802,16 +1805,13 @@ PatchShuttle v0.1.0 is ready when all of the following are demonstrated:
 
 ### Current qualification record
 
-At `0.1.0a3` release-candidate preparation on 2026-08-23, criteria 2 through 16
-had local automated coverage and the feature-complete source had passed the
-required hosted matrix. The published `0.1.0a2` record closes criteria 17, 18,
-and 1 for that immutable version. The final `0.1.0a3` commit must independently
-rerun the hosted matrix for criterion 17, pass TestPyPI installation for
-criterion 18, and pass a clean production installation for criterion 1. Those
-external results are recorded only after they complete. No stable `0.1.0`
-release has been published. The separate live ChatGPT record demonstrates the
-bounded workflow described above and does not extend to every action or
-intentional failure and rollback path.
+As of the completed `0.1.0a3` qualification on 2026-08-23, criteria 1 through
+18 above have explicit evidence for that published alpha release: local
+implementation and test evidence for criteria 2 through 16, plus independent
+hosted CI, TestPyPI, production PyPI, and clean post-release installation
+evidence for criteria 1, 17, and 18. This does not declare stable `0.1.0`
+released. The separate live ChatGPT record remains scoped to `0.1.0a2`; it does
+not extend to every action or intentional failure and rollback path.
 
 ## 33. Fixed decisions for implementation
 

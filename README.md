@@ -17,8 +17,9 @@ records the result for the next iteration.
 > Trusted Publishing workflows are implemented. Every versioned release must
 > pass its own local qualification, GitHub-hosted Windows/Ubuntu matrix,
 > TestPyPI installation, production publication, and post-release smoke gates.
-> The immutable `0.1.0a2` evidence and documented ChatGPT end-to-end workflow
-> are retained in [docs/RELEASE.md](docs/RELEASE.md).
+> The immutable `0.1.0a2` and `0.1.0a3` qualification evidence, plus the
+> separately scoped `0.1.0a2` ChatGPT end-to-end workflow, are retained in
+> [docs/RELEASE.md](docs/RELEASE.md).
 
 > [!NOTE]
 > Compared with `0.1.0a2`, version `0.1.0a3` adds AI-facing planner diagnostics,
@@ -654,13 +655,14 @@ python tools/release_checks.py dist
 python tools/wheel_smoke.py dist/patchshuttle-0.1.0a3-py3-none-any.whl --version 0.1.0a3
 ```
 
-The `0.1.0a2` alpha release passed the required Ubuntu and Windows
-compatibility matrix, TestPyPI qualification, production PyPI Trusted
-Publishing, and a clean post-release installation. The exact release, workflow
-links, artifact hashes, and ChatGPT end-to-end evidence are recorded in
-[docs/RELEASE.md](docs/RELEASE.md). Follow that guide in order for future
-releases, including `0.1.0a3`, and append separate immutable evidence after
-every gate completes. Rerun CI after every release-candidate change.
+The `0.1.0a2` and `0.1.0a3` alpha releases each passed the required Ubuntu and
+Windows compatibility matrix, TestPyPI qualification, production PyPI Trusted
+Publishing, and a clean post-release installation. Their exact release and
+workflow links and artifact hashes, together with the separately scoped
+`0.1.0a2` ChatGPT end-to-end evidence, are recorded in
+[docs/RELEASE.md](docs/RELEASE.md). Follow that guide in order for every future
+release and append separate immutable evidence after each gate completes.
+Rerun CI after every release-candidate change.
 
 ## Manual workflow
 
