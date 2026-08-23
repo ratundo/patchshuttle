@@ -18,6 +18,12 @@ from typing import cast
 
 from patchshuttle._diff import apply_file_diff, parse_unified_diff
 from patchshuttle.errors import PlanningError, PlanningErrorCode
+from patchshuttle.formatter_policy import (
+    FORMATTER_ORDER,
+    FormatterDecision,
+    FormatterName,
+    PlannedFormatterTarget,
+)
 from patchshuttle.models import Action, Check, Job, JobKind
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import (
@@ -111,6 +117,7 @@ class Plan:
     file_changes: tuple[PlannedFileChange, ...]
     directories_to_create: tuple[PurePosixPath, ...]
     formatting_targets: tuple[PurePosixPath, ...]
+    formatter_plan: tuple[PlannedFormatterTarget, ...]
     html_lint_targets: tuple[PurePosixPath, ...]
     preflight_checks: tuple[PlannedPreflightCheck, ...]
     fingerprints: tuple[PathFingerprint, ...]
@@ -140,6 +147,26 @@ class Plan:
             self.job.kind is not JobKind.AUDIT
             and self.workspace.config.execution.confirm
         )
+
+    def formatter_paths(self, name: FormatterName) -> tuple[PurePosixPath, ...]:
+        """Return the immutable ordered RUN scope for one formatter."""
+
+        return tuple(
+            item.path
+            for item in self.formatter_plan
+            if item.formatter == name and item.decision is FormatterDecision.RUN
+        )
+
+    @property
+    def formatter_run_paths(self) -> tuple[PurePosixPath, ...]:
+        """Return each path that at least one formatter may modify."""
+
+        active = {
+            item.path
+            for item in self.formatter_plan
+            if item.decision is FormatterDecision.RUN
+        }
+        return tuple(path for path in self.formatting_targets if path in active)
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,13 +252,16 @@ class _Planner:
 
         file_changes = self._build_file_changes()
         formatting_targets = self._formatting_targets(file_changes)
-        if formatting_targets:
-            self._require_module("isort", item_id="formatting")
-            self._require_module("black", item_id="formatting")
+        for name in FORMATTER_ORDER:
+            exclusions = frozenset(
+                getattr(self.workspace.config.formatting, f"{name}_exclude")
+            )
+            if any(path.as_posix() not in exclusions for path in formatting_targets):
+                self._require_module(name, item_id="formatting")
         html_lint_targets = self._html_lint_targets(file_changes)
         if html_lint_targets:
             self._require_module("djlint", item_id="html_lint")
-        preflight_checks = run_quality_preflight(
+        preflight = run_quality_preflight(
             self.workspace,
             file_changes,
             formatting_targets=formatting_targets,
@@ -256,8 +286,9 @@ class _Planner:
             file_changes=file_changes,
             directories_to_create=tuple(self.created_directories),
             formatting_targets=formatting_targets,
+            formatter_plan=preflight.formatter_plan,
             html_lint_targets=html_lint_targets,
-            preflight_checks=preflight_checks,
+            preflight_checks=preflight.checks,
             fingerprints=tuple(self.fingerprints.values()),
             protected_paths_passed=True,
             backup_destination=backup_destination,
@@ -595,6 +626,7 @@ class _Planner:
             "django_check",
             "django_migrations_check",
             "django_test",
+            "django_import_check",
         }:
             target = self._check_target(
                 parameters.manage_py,

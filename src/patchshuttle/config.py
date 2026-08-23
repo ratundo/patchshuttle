@@ -6,10 +6,10 @@ import json
 import stat
 from enum import Enum
 from os import PathLike
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from patchshuttle.errors import WorkspaceError, WorkspaceErrorCode
 from patchshuttle.identifiers import ProjectId
@@ -90,6 +90,32 @@ class FormattingSettings(_ConfigModel):
     order: tuple[Literal["isort"], Literal["black"]] = ("isort", "black")
     scope: Literal["changed_python_files"] = "changed_python_files"
     rerun_checks: bool = Field(default=True, strict=True)
+    isort_exclude: tuple[StrictString, ...] = ()
+    black_exclude: tuple[StrictString, ...] = ()
+
+    @field_validator("isort_exclude", "black_exclude")
+    @classmethod
+    def validate_exact_exclusions(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Require deterministic exact workspace-relative POSIX paths."""
+
+        seen: set[str] = set()
+        for value in values:
+            path = PurePosixPath(value)
+            if (
+                "\\" in value
+                or path.is_absolute()
+                or not path.parts
+                or any(part in {".", ".."} or ":" in part for part in path.parts)
+                or path.as_posix() != value
+                or path.suffix != ".py"
+            ):
+                raise ValueError(
+                    "formatter exclusions must be normalized workspace-relative Python paths"
+                )
+            if value in seen:
+                raise ValueError("formatter exclusions must not contain duplicates")
+            seen.add(value)
+        return values
 
 
 class HtmlLintSettings(_ConfigModel):
@@ -233,7 +259,9 @@ def render_default_config(
         "enabled = true\n"
         'order = ["isort", "black"]\n'
         'scope = "changed_python_files"\n'
-        "rerun_checks = true\n\n"
+        "rerun_checks = true\n"
+        "isort_exclude = []\n"
+        "black_exclude = []\n\n"
         "[linting.html]\n"
         "enabled = false\n"
         'tool = "djlint"\n'

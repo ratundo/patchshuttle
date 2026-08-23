@@ -17,11 +17,13 @@ import patchshuttle.workspace as workspace_module
 from patchshuttle import Job
 from patchshuttle.actions import FilePublishError
 from patchshuttle.backup import BackupStatus
+from patchshuttle.checks import CheckResult, CheckRunResult, CheckStatus
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode
 from patchshuttle.planner import FileDisposition, plan_job
 from patchshuttle.rollback import RollbackResult
 from patchshuttle.runner import TransactionStatus, execute_create_transaction
-from patchshuttle.workspace import Workspace, init_workspace
+from patchshuttle.runtime_cache import RuntimeCacheError
+from patchshuttle.workspace import Workspace, init_workspace, load_workspace
 
 PROJECT_ID = "PSH-8F41C2A73D905E61"
 RUN_TIMESTAMP = "2026_08_06_190000_000001"
@@ -70,6 +72,27 @@ def snapshot(root: Path) -> dict[Path, bytes]:
         for path in root.rglob("*")
         if path.is_file()
     }
+
+
+def fixed_check_run(workspace: Workspace, status: CheckStatus) -> CheckRunResult:
+    return CheckRunResult(
+        results=(
+            CheckResult(
+                id="check_001",
+                name="import_check",
+                status=status,
+                argv=("python", "-c", "controlled"),
+                working_directory=workspace.root,
+                timeout_seconds=30,
+                return_code=0 if status is CheckStatus.PASSED else 1,
+                duration_ms=1,
+                stdout="",
+                stderr="",
+                stdout_truncated=False,
+                stderr_truncated=False,
+            ),
+        )
+    )
 
 
 def test_create_transaction_writes_declared_targets_and_completed_manifest(
@@ -173,6 +196,212 @@ def test_create_transaction_no_change_skips_backup(workspace: Workspace) -> None
     assert result.created_files == ()
     assert result.created_directories == ()
     assert list((workspace.root / "patches/backups").iterdir()) == []
+
+
+def test_successful_transaction_cleans_pyc_created_by_a_project_check(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.config_path.write_text(
+        workspace.config_path.read_text("utf-8").replace(
+            "enabled = true",
+            "enabled = false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    workspace = load_workspace(workspace.root)
+    plan = create_plan(
+        workspace,
+        [
+            {
+                "create_file": {
+                    "path": "src/pkg/module.py",
+                    "content": "VALUE = 1\n",
+                }
+            }
+        ],
+    )
+
+    def cache_creating_check(plan):
+        cache = plan.workspace.root / "src/pkg/__pycache__"
+        cache.mkdir()
+        (cache / "module.cpython-test.pyc").write_bytes(b"runtime cache")
+        return fixed_check_run(plan.workspace, CheckStatus.PASSED)
+
+    monkeypatch.setattr(runner_module, "run_checks", cache_creating_check)
+
+    result = execute_create_transaction(plan, approved=True)
+
+    assert result.status is TransactionStatus.APPLIED
+    assert (workspace.root / "src/pkg/module.py").exists()
+    assert not (workspace.root / "src/pkg/__pycache__").exists()
+
+
+def test_failed_transaction_cleans_runtime_pyc_before_rollback(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.config_path.write_text(
+        workspace.config_path.read_text("utf-8").replace(
+            "enabled = true",
+            "enabled = false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    workspace = load_workspace(workspace.root)
+    plan = create_plan(
+        workspace,
+        [
+            {
+                "create_file": {
+                    "path": "src/pkg/module.py",
+                    "content": "VALUE = 1\n",
+                }
+            }
+        ],
+    )
+
+    def failing_cache_check(plan):
+        cache = plan.workspace.root / "src/pkg/__pycache__"
+        cache.mkdir()
+        (cache / "module.cpython-test.pyc").write_bytes(b"runtime cache")
+        return fixed_check_run(plan.workspace, CheckStatus.FAILED)
+
+    monkeypatch.setattr(runner_module, "run_checks", failing_cache_check)
+
+    with pytest.raises(ExecutionError) as caught:
+        execute_create_transaction(plan, approved=True)
+
+    assert caught.value.code is ExecutionErrorCode.CHECK_FAILED
+    assert caught.value.rollback_succeeded is True
+    assert not (workspace.root / "src").exists()
+
+
+def test_runtime_cache_baseline_failure_is_mapped_and_rolled_back(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.config_path.write_text(
+        workspace.config_path.read_text("utf-8").replace(
+            "enabled = true",
+            "enabled = false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    workspace = load_workspace(workspace.root)
+    plan = create_plan(
+        workspace,
+        [
+            {
+                "create_file": {
+                    "path": "src/pkg/module.py",
+                    "content": "VALUE = 1\n",
+                }
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "capture_runtime_cache_ledger",
+        lambda plan: (_ for _ in ()).throw(
+            RuntimeCacheError(
+                "metadata failed",
+                path=PurePosixPath("src/pkg/__pycache__"),
+            )
+        ),
+    )
+
+    with pytest.raises(ExecutionError) as caught:
+        execute_create_transaction(plan, approved=True)
+
+    assert caught.value.code is ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED
+    assert caught.value.path == "src/pkg/__pycache__"
+    assert caught.value.rollback_succeeded is True
+    assert not (workspace.root / "src").exists()
+
+
+def test_runtime_cache_cleanup_inspection_failure_is_conservative(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.config_path.write_text(
+        workspace.config_path.read_text("utf-8").replace(
+            "enabled = true",
+            "enabled = false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    workspace = load_workspace(workspace.root)
+    plan = create_plan(
+        workspace,
+        [
+            {
+                "create_file": {
+                    "path": "src/pkg/module.py",
+                    "content": "VALUE = 1\n",
+                }
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "cleanup_runtime_caches",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("inspection failed")),
+    )
+
+    with pytest.raises(ExecutionError) as caught:
+        execute_create_transaction(plan, approved=True)
+
+    assert caught.value.code is ExecutionErrorCode.ROLLBACK_FAILED
+    assert caught.value.cause_code is ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED
+    assert caught.value.path == "__pycache__"
+    assert not (workspace.root / "src").exists()
+
+
+def test_foreign_runtime_cache_entry_prevents_false_rollback_success(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.config_path.write_text(
+        workspace.config_path.read_text("utf-8").replace(
+            "enabled = true",
+            "enabled = false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    workspace = load_workspace(workspace.root)
+    plan = create_plan(
+        workspace,
+        [
+            {
+                "create_file": {
+                    "path": "src/pkg/module.py",
+                    "content": "VALUE = 1\n",
+                }
+            }
+        ],
+    )
+
+    def foreign_cache_check(plan):
+        cache = plan.workspace.root / "src/pkg/__pycache__"
+        cache.mkdir()
+        (cache / "foreign.txt").write_text("keep\n", encoding="utf-8")
+        return fixed_check_run(plan.workspace, CheckStatus.PASSED)
+
+    monkeypatch.setattr(runner_module, "run_checks", foreign_cache_check)
+
+    with pytest.raises(ExecutionError) as caught:
+        execute_create_transaction(plan, approved=True)
+
+    assert caught.value.code is ExecutionErrorCode.ROLLBACK_FAILED
+    assert caught.value.cause_code is ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED
+    assert (workspace.root / "src/pkg/__pycache__/foreign.txt").exists()
+    assert not (workspace.root / "src/pkg/module.py").exists()
 
 
 def test_create_transaction_requires_approval_before_writing(

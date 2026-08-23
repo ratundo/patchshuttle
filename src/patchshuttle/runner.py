@@ -50,6 +50,12 @@ from patchshuttle.planner import (
     plan_job,
 )
 from patchshuttle.rollback import rollback_created, rollback_transaction
+from patchshuttle.runtime_cache import (
+    RuntimeCacheError,
+    RuntimeCacheLedger,
+    capture_runtime_cache_ledger,
+    cleanup_runtime_caches,
+)
 from patchshuttle.workspace import Workspace
 
 _CREATE_ACTIONS = frozenset({"create_directory", "create_file"})
@@ -278,6 +284,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
     formatted_files: tuple[FormattedFileState, ...] = ()
     final_checks: tuple[CheckResult, ...] = ()
     workspace_comparison: WorkspaceComparison | None = None
+    runtime_cache_ledger: RuntimeCacheLedger | None = None
     try:
         changes = {change.path: change for change in plan.file_changes}
         for action in plan.actions:
@@ -357,6 +364,16 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
         if tuple(modified_files) != plan.files_to_modify:
             raise OSError("not all planned files were modified")
 
+        try:
+            runtime_cache_ledger = capture_runtime_cache_ledger(plan)
+        except RuntimeCacheError as exc:
+            raise ExecutionError(
+                ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED,
+                "runtime cache baseline could not be captured safely",
+                item_id="runtime_cache",
+                path=exc.path.as_posix(),
+            ) from exc
+
         if plan.html_lint_targets:
             current_item = "html_lint"
             current_path = plan.html_lint_targets[0]
@@ -414,9 +431,9 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
             )
         _verify_transaction_files_after_checks(plan, backup, initial_checks)
 
-        if plan.formatting_targets:
+        if plan.formatter_run_paths:
             current_item = "formatting"
-            current_path = plan.formatting_targets[0]
+            current_path = plan.formatter_run_paths[0]
             before_formatting = _capture_formatter_states(
                 plan,
                 check_results=initial_checks,
@@ -430,7 +447,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
                     ExecutionErrorCode.FORMAT_FAILED,
                     "formatter commands could not be prepared or launched",
                     item_id="formatting",
-                    path=plan.formatting_targets[0].as_posix(),
+                    path=plan.formatter_run_paths[0].as_posix(),
                     check_results=initial_checks,
                     formatting_results=formatting_results,
                 ) from exc
@@ -452,7 +469,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
             _verify_planned_transaction_files(
                 plan,
                 backup,
-                excluded=frozenset(plan.formatting_targets),
+                excluded=frozenset(plan.formatter_run_paths),
                 code=ExecutionErrorCode.FORMAT_FAILED,
                 message="formatters changed a declared non-formatting file",
                 check_results=initial_checks,
@@ -496,7 +513,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
                 _verify_planned_transaction_files(
                     plan,
                     backup,
-                    excluded=frozenset(plan.formatting_targets),
+                    excluded=frozenset(plan.formatter_run_paths),
                     code=ExecutionErrorCode.CHECK_FAILED,
                     message="final project checks changed a declared transaction file",
                     check_results=all_checks,
@@ -515,6 +532,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
 
         current_item = None
         current_path = None
+        _require_runtime_cache_cleanup(plan, runtime_cache_ledger)
         workspace_comparison = _compare_workspace_to_baseline(plan, baseline)
         if workspace_comparison.unexpected_changes:
             unexpected = workspace_comparison.unexpected_changes[0]
@@ -546,6 +564,15 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
             path=current_path,
             backup=backup,
         )
+        cache_unresolved: tuple[PurePosixPath, ...] = ()
+        if runtime_cache_ledger is not None:
+            try:
+                cache_unresolved = cleanup_runtime_caches(
+                    plan,
+                    runtime_cache_ledger,
+                ).unresolved
+            except (OSError, ValueError):
+                cache_unresolved = (PurePosixPath("__pycache__"),)
         if plan.auto_rollback and not keep_changes:
             try:
                 _rollback_or_raise(
@@ -554,6 +581,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
                     files=tuple(rollback_files),
                     directories=tuple(created_directories),
                     modified_files=tuple(modified_files),
+                    additional_unresolved=cache_unresolved,
                 )
             except ExecutionError as rollback_failure:
                 rollback_failure.workspace_comparison = _safe_workspace_comparison(
@@ -788,7 +816,28 @@ def _require_preserved_formatter_modes(
 
 
 def _first_formatter_path(plan: Plan) -> str | None:
-    return plan.formatting_targets[0].as_posix() if plan.formatting_targets else None
+    return plan.formatter_run_paths[0].as_posix() if plan.formatter_run_paths else None
+
+
+def _require_runtime_cache_cleanup(
+    plan: Plan,
+    ledger: RuntimeCacheLedger,
+) -> None:
+    try:
+        cleanup = cleanup_runtime_caches(plan, ledger)
+    except (OSError, ValueError) as exc:
+        raise ExecutionError(
+            ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED,
+            "runtime caches could not be inspected after project checks",
+            item_id="runtime_cache",
+        ) from exc
+    if cleanup.unresolved:
+        raise ExecutionError(
+            ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED,
+            "runtime caches could not be cleaned safely after project checks",
+            item_id="runtime_cache",
+            path=cleanup.unresolved[0].as_posix(),
+        )
 
 
 def _action_failure(
@@ -854,6 +903,7 @@ def _rollback_or_raise(
     files: tuple[PurePosixPath, ...],
     directories: tuple[PurePosixPath, ...],
     modified_files: tuple[PurePosixPath, ...],
+    additional_unresolved: tuple[PurePosixPath, ...] = (),
 ) -> None:
     try:
         if modified_files:
@@ -884,7 +934,7 @@ def _rollback_or_raise(
             html_lint_results=failure.html_lint_results,
             workspace_comparison=failure.workspace_comparison,
         ) from exc
-    if rollback.success:
+    if rollback.success and not additional_unresolved:
         try:
             update_backup(
                 backup,
@@ -912,7 +962,7 @@ def _rollback_or_raise(
     raise ExecutionError(
         ExecutionErrorCode.ROLLBACK_FAILED,
         "rollback could not restore every created path",
-        path=rollback.unresolved[0].as_posix(),
+        path=(rollback.unresolved or additional_unresolved)[0].as_posix(),
         backup_path=backup.path,
         rollback_succeeded=False,
         cause_code=failure.code,

@@ -311,6 +311,16 @@ def _manifest_payload(
         "failure_code": failure_code.value if failure_code is not None else None,
         "action_order": [f"{action.id}:{action.name}" for action in plan.actions],
         "formatting_targets": [path.as_posix() for path in plan.formatting_targets],
+        "formatter_plan": [
+            {
+                "path": item.path.as_posix(),
+                "formatter": item.formatter,
+                "decision": item.decision.value,
+                "baseline": item.baseline.value,
+                "planned": item.planned.value,
+            }
+            for item in plan.formatter_plan
+        ],
         "html_lint_targets": [path.as_posix() for path in plan.html_lint_targets],
         "entries": [_entry_payload(entry) for entry in backup.entries],
     }

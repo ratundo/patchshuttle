@@ -1,5 +1,6 @@
 """Contract tests for local PatchShuttle configuration."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,8 @@ def test_load_config_returns_typed_defaults(tmp_path: Path) -> None:
     assert config.execution.max_inventory_entries == 50_000
     assert config.execution.max_inventory_bytes == 1_000_000_000
     assert config.formatting.order == ("isort", "black")
+    assert config.formatting.isort_exclude == ()
+    assert config.formatting.black_exclude == ()
     assert config.linting.html.enabled is False
     assert config.linting.html.tool == "djlint"
     assert config.linting.html.profile == "html"
@@ -55,6 +58,61 @@ def test_load_config_returns_typed_defaults(tmp_path: Path) -> None:
     assert config.logging.timezone == "local"
     assert config.checks.require_at_least_one_for_patch is True
     assert config.checks.profiles == {}
+
+
+def test_formatter_exclusions_accept_exact_python_paths(tmp_path: Path) -> None:
+    text = render_default_config(PROJECT_ID, ProjectOrigin.EXISTING)
+    text = text.replace(
+        "isort_exclude = []\nblack_exclude = []",
+        'isort_exclude = ["legacy/imports.py"]\n'
+        'black_exclude = ["email_client/views.py"]',
+    )
+
+    formatting = load_config(write_config(tmp_path, text)).formatting
+
+    assert formatting.isort_exclude == ("legacy/imports.py",)
+    assert formatting.black_exclude == ("email_client/views.py",)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "../legacy.py",
+        "/legacy.py",
+        "legacy\\module.py",
+        "C:/legacy.py",
+        "legacy/./module.py",
+        "legacy/module.py/",
+        "legacy/template.html",
+    ),
+)
+def test_formatter_exclusions_require_normalized_python_paths(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    text = render_default_config(PROJECT_ID, ProjectOrigin.EXISTING).replace(
+        "black_exclude = []",
+        f"black_exclude = [{json.dumps(value)}]",
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        load_config(write_config(tmp_path, text))
+
+    assert caught.value.code is WorkspaceErrorCode.CONFIG_INVALID
+    assert caught.value.path.startswith("$.formatting.black_exclude")
+
+
+def test_formatter_exclusions_reject_duplicates(tmp_path: Path) -> None:
+    text = render_default_config(PROJECT_ID, ProjectOrigin.EXISTING).replace(
+        "black_exclude = []",
+        'black_exclude = ["legacy.py", "legacy.py"]',
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        load_config(write_config(tmp_path, text))
+
+    assert caught.value.code is WorkspaceErrorCode.CONFIG_INVALID
+    assert caught.value.path.startswith("$.formatting.black_exclude")
 
 
 @pytest.mark.parametrize(

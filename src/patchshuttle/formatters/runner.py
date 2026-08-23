@@ -8,14 +8,16 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Literal, TypeAlias
 
 from patchshuttle._process import ProcessCommand, run_process
+from patchshuttle.formatter_policy import (
+    BLACK_POLICY_OPTIONS,
+    FORMATTER_ORDER,
+    FormatterDecision,
+    FormatterName,
+)
 from patchshuttle.planner import Plan
 from patchshuttle.policy import PathKind, Policy
-
-FormatterName: TypeAlias = Literal["isort", "black"]
-_FORMATTER_ORDER: tuple[FormatterName, FormatterName] = ("isort", "black")
 
 
 class FormatterStatus(str, Enum):
@@ -99,16 +101,36 @@ def prepare_formatters(plan: Plan) -> tuple[PreparedFormatter, ...]:
     )
     if plan.formatting_targets != expected_targets:
         raise ValueError("plan formatting targets do not match changed Python files")
+    expected_decisions = tuple(
+        (
+            path,
+            name,
+            (
+                FormatterDecision.SKIP_LOCAL_POLICY
+                if path.as_posix() in frozenset(getattr(formatting, f"{name}_exclude"))
+                else FormatterDecision.RUN
+            ),
+        )
+        for path in expected_targets
+        for name in FORMATTER_ORDER
+    )
+    actual_decisions = tuple(
+        (item.path, item.formatter, item.decision) for item in plan.formatter_plan
+    )
+    if actual_decisions != expected_decisions:
+        raise ValueError("plan formatter policy does not match local configuration")
     if not expected_targets:
         return ()
-    if formatting.order != _FORMATTER_ORDER:
+    if formatting.order != FORMATTER_ORDER:
         raise ValueError("protocol 1 requires isort then Black formatter order")
 
-    paths = tuple(path.as_posix() for path in expected_targets)
     timeout = plan.workspace.config.execution.default_timeout_seconds
     commands: list[PreparedFormatter] = []
-    for index, name in enumerate(_FORMATTER_ORDER, start=1):
-        options = ("--overwrite-in-place",) if name == "isort" else ()
+    for index, name in enumerate(FORMATTER_ORDER, start=1):
+        paths = tuple(path.as_posix() for path in plan.formatter_paths(name))
+        if not paths:
+            continue
+        options = ("--overwrite-in-place",) if name == "isort" else BLACK_POLICY_OPTIONS
         commands.append(
             PreparedFormatter(
                 id=f"formatter_{index:03d}",
@@ -169,7 +191,8 @@ def capture_formatted_files(plan: Plan) -> tuple[FormattedFileState, ...]:
     policy = Policy(plan.workspace)
     maximum = plan.workspace.config.execution.max_single_file_bytes
     return tuple(
-        _capture_file(policy, path, maximum=maximum) for path in plan.formatting_targets
+        _capture_file(policy, path, maximum=maximum)
+        for path in plan.formatter_run_paths
     )
 
 
@@ -179,7 +202,7 @@ def verify_formatted_files(
 ) -> None:
     """Require formatter targets to retain their captured exact final state."""
 
-    if tuple(item.path for item in expected) != plan.formatting_targets:
+    if tuple(item.path for item in expected) != plan.formatter_run_paths:
         raise ValueError("formatted-file snapshot scope does not match the plan")
     if capture_formatted_files(plan) != expected:
         raise OSError("a formatter target changed after formatting")

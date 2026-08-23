@@ -632,6 +632,7 @@ def _failure_stage(error: ExecutionError, plan: Plan | None) -> str:
     if root in {
         ExecutionErrorCode.WORKSPACE_INVENTORY_FAILED,
         ExecutionErrorCode.UNEXPECTED_WORKSPACE_CHANGE,
+        ExecutionErrorCode.RUNTIME_CACHE_CLEANUP_FAILED,
     }:
         return "WORKSPACE_COMPARISON"
     return "SUMMARY"

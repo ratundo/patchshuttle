@@ -47,6 +47,21 @@ def django_test(
     return Check({"django_test": {"manage_py": manage_py, "labels": tuple(labels)}})
 
 
+def django_import_check(
+    modules: Iterable[str],
+    *,
+    manage_py: str = "manage.py",
+) -> Check:
+    return Check(
+        {
+            "django_import_check": {
+                "manage_py": manage_py,
+                "modules": tuple(modules),
+            }
+        }
+    )
+
+
 def import_check(modules: Iterable[str]) -> Check:
     return Check({"import_check": {"modules": tuple(modules)}})
 
@@ -58,6 +73,7 @@ def profile(name: str) -> Check:
 __all__ = [
     "compileall",
     "django_check",
+    "django_import_check",
     "django_migrations_check",
     "django_test",
     "import_check",

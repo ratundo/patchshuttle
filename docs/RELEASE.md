@@ -62,11 +62,19 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a2-py3-none-any.whl --version 0.1.0a2
+python tools/wheel_smoke.py dist/patchshuttle-<VERSION>-py3-none-any.whl --version <VERSION>
 ```
 
 `release_checks.py` requires exactly one wheel and one source archive for the
-source version and writes `dist/SHA256SUMS`.
+source version and writes `dist/SHA256SUMS`. Replace `<VERSION>` with the exact
+source version under qualification. Do not reuse the immutable published
+`0.1.0a2` version for a future upload.
+
+For the next alpha, the local and hosted suites must also retain explicit
+coverage for formatter baseline-versus-planned classification, per-tool local
+exclusions, `django_import_check`, and rollback after runtime `.pyc` creation.
+The plan and run logs must show the resolved formatter decision for each
+changed Python path.
 
 ## 2. Publish the repository and run CI
 

@@ -34,6 +34,7 @@ CHECKS = (
     "django_check",
     "django_migrations_check",
     "django_test",
+    "django_import_check",
     "import_check",
     "profile",
 )
@@ -103,6 +104,19 @@ installation: Install patchshuttle[html].
 configuration: Enable [linting.html] in patches/patchshuttle.toml.
 safety: Jobs cannot enable, disable, or reconfigure linting; project djLint configuration is isolated.
 behavior: Linting never reformats HTML and a failed transactional lint follows normal rollback policy.""",
+    "formatting": """\
+category: local_policy
+summary: Format changed Python files with isort then Black after successful checks.
+preflight: Plan records baseline and final-planned compatibility for each formatter and path.
+exclusions: Exact .py paths may be set only in local isort_exclude or black_exclude lists.
+safety: Jobs cannot disable formatters, add exclusions, or change formatter order and scope.
+diagnostics: Baseline and patch incompatibility use distinct failure codes and retain bounded tool output.""",
+    "django_import_check": """\
+category: check
+summary: Import validated dotted modules through the project's Django environment.
+fields: manage_py (required path) and modules (required dotted identifiers)
+execution: Runs the current interpreter with manage.py shell -c and controlled import code.
+safety: No arbitrary Python expression or shell string is accepted from the job.""",
     "failure_logs": """\
 category: cli_workflow
 summary: Record validation and planning failures after a workspace is resolved.

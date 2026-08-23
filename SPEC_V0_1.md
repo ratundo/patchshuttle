@@ -17,9 +17,10 @@
 > Unreleased next-alpha work adds AI-facing mismatch diagnostics, resolved
 > diff previews, Python formatter preflight, opt-in changed-HTML linting,
 > early failure logs, explicit workspace routing, and installed-contract
-> self-documentation; those changes are not part of the published `0.1.0a2`
-> evidence.
-> The current unreleased source passed 744 local tests on Linux/Python 3.12
+> self-documentation, per-file formatter policy, Django-aware import checks,
+> and defensive runtime-cache cleanup; those changes are not part of the
+> published `0.1.0a2` evidence.
+> The current unreleased source passed 793 local tests on Linux/Python 3.12
 > with one environment-only skip, 100% statement and branch coverage, release
 > artifact validation, `twine check`, and a clean wheel smoke test. Its required
 > hosted Windows/Ubuntu evidence is separate from the published `0.1.0a2`
@@ -331,6 +332,8 @@ enabled = true
 order = ["isort", "black"]
 scope = "changed_python_files"
 rerun_checks = true
+isort_exclude = []
+black_exclude = []
 
 [linting.html]
 enabled = false
@@ -354,11 +357,16 @@ Configuration values are user policy. A YAML job cannot override:
 - protected paths, protected-path exceptions, or ignored paths;
 - confirmation requirements;
 - backup and rollback policy;
-- formatting order;
+- formatting order and exact-path formatter exclusions;
 - HTML lint enablement, profile, ignore rules, or scope;
 - command allowlists;
 - size or output limits;
 - shell execution policy.
+
+Each formatter exclusion is one exact normalized workspace-relative POSIX
+path ending in `.py`. Globs, absolute paths, parent traversal, drive-qualified
+paths, duplicates, and non-Python paths are invalid. Exclusions apply only to
+the named formatter; requested checks remain mandatory.
 
 PatchShuttle must use `tomllib` where available and the `tomli` compatibility
 package on Python 3.10.
@@ -820,6 +828,21 @@ checks:
       labels: ["clients.tests"]
 ```
 
+#### `django_import_check`
+
+```yaml
+checks:
+  - django_import_check:
+      manage_py: "manage.py"
+      modules: ["clients.models", "email_client.views"]
+```
+
+Runs the current interpreter with `manage.py shell -c` and internally generated
+import code after Django initializes the project environment. Module names must
+match the same conservative dotted-identifier pattern as `import_check`; the
+job cannot provide an arbitrary Python expression. The module list is limited
+to 100 entries and 8000 total module-name characters.
+
 #### `import_check`
 
 ```yaml
@@ -942,6 +965,7 @@ Files to modify
 Directories to create
 Requested checks
 Formatting scope
+Per-file isort and Black decisions with baseline and planned compatibility
 HTML lint scope
 Quality preflight results
 Protected-path result
@@ -979,7 +1003,7 @@ Each backup contains:
 - detected encoding and newline style;
 - file mode where supported;
 - action order;
-- formatter targets;
+- formatter targets and resolved per-tool decisions;
 - HTML linter targets;
 - run metadata.
 
@@ -1022,6 +1046,14 @@ outside the declared transaction. PatchShuttle records a before-and-after
 workspace inventory and reports unexpected changes, but v0.1 does not promise
 to restore arbitrary external side effects.
 
+Python checks receive a fresh external `PYTHONPYCACHEPREFIX`. As a defensive
+fallback, PatchShuttle also records direct `__pycache__` entries at the changed
+Python file and ancestor directories after actions and before checks. Before
+completion or rollback it removes only new regular `.pyc` files and newly empty
+cache directories. Pre-existing entries, symbolic links, directories, and
+foreign files are preserved; an unresolved new entry prevents a false rollback
+success.
+
 ## 18. Formatting
 
 Formatting is local policy, not an AI-job field.
@@ -1029,22 +1061,34 @@ Formatting is local policy, not an AI-job field.
 Default patch behavior:
 
 1. collect `.py` files created or modified by successful actions;
-2. run the requested checks;
-3. run isort on those files;
-4. run Black on those files;
-5. run the same checks again.
+2. resolve exact local exclusions independently for isort and Black;
+3. inspect the existing baseline and final planned content with each active
+   formatter before confirmation;
+4. run the requested checks;
+5. run isort and then Black on each tool's exact `RUN` scope;
+6. run the same checks again when at least one formatter ran.
 
 Rules:
 
 - formatters never target the entire repository by default;
 - non-Python jobs skip formatting with a recorded status;
-- formatter availability is checked during preflight;
+- formatter availability is checked only when that tool has a non-excluded
+  target;
 - Python source encoding is detected with the PEP 263 mechanism;
-- final planned Python content must be accepted by isort and Black before
-  confirmation and before any transaction write;
+- the plan and log contain one decision per changed path and formatter:
+  `RUN` or `SKIP_LOCAL_POLICY`, plus baseline and planned compatibility;
+- `FORMATTER_PATCH_INCOMPATIBLE` means final planned content is incompatible
+  after a compatible or absent baseline;
+- `FORMATTER_BASELINE_INCOMPATIBLE` means the existing and final planned
+  content are both incompatible with that formatter;
+- an incompatible baseline followed by compatible planned content is accepted
+  as a repair and remains visible in the formatter matrix;
+- Black preflight uses its controlled CLI in check-only stdin mode. Exit code
+  `1` means reformatting is required and is therefore compatible; parse,
+  encoding, timeout, and launch failures are not compatible;
 - formatter failure triggers rollback;
 - formatter output and resulting file hashes are logged;
-- AI jobs cannot change formatter order or scope.
+- AI jobs cannot change formatter order, scope, or exclusions.
 
 Black and isort are required package dependencies in v0.1 so a normal
 `pip install patchshuttle` provides the default workflow without an additional
@@ -1271,7 +1315,7 @@ rollback: SUCCESS
 available_job_kinds: [audit, patch, verify]
 available_audit_actions: [tree, read, search, find_files, file_info, hash, git_status, environment]
 available_change_actions: [create_directory, create_file, replace_exact, insert_before, insert_after, delete_exact, apply_diff]
-available_checks: [compileall, pytest, unittest, django_check, django_migrations_check, django_test, import_check, profile]
+available_checks: [compileall, pytest, unittest, django_check, django_migrations_check, django_test, django_import_check, import_check, profile]
 next_expected_response: corrected_patch_or_audit
 === END_PATCHSHUTTLE_AI_HANDOFF ===
 ```
@@ -1618,6 +1662,11 @@ has been tested through a documented end-to-end scenario.
 - validation and planning failure logs with summary and AI handoff sections;
 - workspace-independent capability, schema, and operation discovery;
 - explicit workspace routing plus bounded, advisory direct-child hints.
+- per-file formatter baseline/planned diagnostics and exact local isort/Black
+  exclusions;
+- Django-aware controlled module imports through `manage.py shell -c`;
+- defensive runtime `.pyc` cleanup that preserves pre-existing and foreign
+  cache entries.
 
 ### `0.1.0b1`
 

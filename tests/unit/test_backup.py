@@ -84,6 +84,22 @@ def test_prepare_and_update_backup_manifest_with_formatting_scope(
     prepared = json.loads(backup.manifest_path.read_text("utf-8"))
     assert prepared["status"] == "PREPARED"
     assert prepared["formatting_targets"] == ["src/example.py"]
+    assert prepared["formatter_plan"] == [
+        {
+            "path": "src/example.py",
+            "formatter": "isort",
+            "decision": "RUN",
+            "baseline": "NOT_APPLICABLE",
+            "planned": "PASS",
+        },
+        {
+            "path": "src/example.py",
+            "formatter": "black",
+            "decision": "RUN",
+            "baseline": "NOT_APPLICABLE",
+            "planned": "PASS",
+        },
+    ]
     assert prepared["html_lint_targets"] == []
 
     update_backup(

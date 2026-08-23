@@ -27,6 +27,9 @@ QuietLevel: TypeAlias = Annotated[int, Field(strict=True, ge=0, le=2)]
 NonEmptyStringTuple: TypeAlias = Annotated[
     tuple[NonEmptyString, ...], Field(min_length=1)
 ]
+ModuleNameTuple: TypeAlias = Annotated[
+    tuple[NonEmptyString, ...], Field(min_length=1, max_length=100)
+]
 
 
 class _FrozenModel(BaseModel):
@@ -158,8 +161,8 @@ class DjangoTestParameters(_FrozenModel):
     labels: tuple[NonEmptyString, ...] = ()
 
 
-class ImportCheckParameters(_FrozenModel):
-    modules: NonEmptyStringTuple
+class _ModuleImportParameters(_FrozenModel):
+    modules: ModuleNameTuple
 
     @field_validator("modules")
     @classmethod
@@ -167,7 +170,17 @@ class ImportCheckParameters(_FrozenModel):
         invalid = [module for module in modules if not _MODULE_NAME.fullmatch(module)]
         if invalid:
             raise ValueError("modules must contain only dotted Python identifiers")
+        if sum(len(module) for module in modules) > 8_000:
+            raise ValueError("module names must not exceed 8000 characters in total")
         return modules
+
+
+class ImportCheckParameters(_ModuleImportParameters):
+    pass
+
+
+class DjangoImportCheckParameters(_ModuleImportParameters):
+    manage_py: NonEmptyString
 
 
 class ProfileParameters(_FrozenModel):
@@ -371,6 +384,10 @@ class DjangoTestCheck(_FrozenModel):
     django_test: DjangoTestParameters
 
 
+class DjangoImportCheck(_FrozenModel):
+    django_import_check: DjangoImportCheckParameters
+
+
 class ImportCheck(_FrozenModel):
     import_check: ImportCheckParameters
 
@@ -386,6 +403,7 @@ CheckValue: TypeAlias = (
     | DjangoCheck
     | DjangoMigrationsCheck
     | DjangoTestCheck
+    | DjangoImportCheck
     | ImportCheck
     | ProfileCheck
 )
@@ -396,6 +414,7 @@ CheckName: TypeAlias = Literal[
     "django_check",
     "django_migrations_check",
     "django_test",
+    "django_import_check",
     "import_check",
     "profile",
 ]
@@ -407,6 +426,7 @@ _CHECK_MODELS: dict[str, type[_FrozenModel]] = {
     "django_check": DjangoCheck,
     "django_migrations_check": DjangoMigrationsCheck,
     "django_test": DjangoTestCheck,
+    "django_import_check": DjangoImportCheck,
     "import_check": ImportCheck,
     "profile": ProfileCheck,
 }

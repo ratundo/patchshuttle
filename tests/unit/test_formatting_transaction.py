@@ -166,6 +166,41 @@ def test_non_python_change_skips_formatters_and_duplicate_checks(
     assert result.final_checks == ()
 
 
+def test_local_formatter_exclusions_keep_checks_strict_and_skip_formatters(
+    workspace: Workspace,
+) -> None:
+    workspace.config_path.write_text(
+        workspace.config_path.read_text("utf-8")
+        .replace("isort_exclude = []", 'isort_exclude = ["module.py"]')
+        .replace("black_exclude = []", 'black_exclude = ["module.py"]'),
+        encoding="utf-8",
+    )
+    workspace = load_workspace(workspace.root)
+    target = workspace.root / "module.py"
+    target.write_text("VALUES=[1]\n", encoding="utf-8")
+    plan = patch_plan(
+        workspace,
+        actions=[
+            {
+                "replace_exact": {
+                    "path": "module.py",
+                    "old": "VALUES=[1]",
+                    "new": "VALUES=[2]",
+                }
+            }
+        ],
+        checks=[{"import_check": {"modules": ["json"]}}],
+    )
+
+    result = execute_change_transaction(plan, approved=True)
+
+    assert [item.status for item in result.initial_checks] == [CheckStatus.PASSED]
+    assert result.formatting_results == ()
+    assert result.formatted_files == ()
+    assert result.final_checks == ()
+    assert target.read_text("utf-8") == "VALUES=[2]\n"
+
+
 def test_local_policy_can_disable_final_check_rerun(workspace: Workspace) -> None:
     workspace.config_path.write_text(
         workspace.config_path.read_text("utf-8").replace(

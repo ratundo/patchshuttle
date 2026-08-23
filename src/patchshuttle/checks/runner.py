@@ -26,6 +26,16 @@ _IMPORT_CHECK_CODE = (
 )
 
 
+def _django_import_code(modules: tuple[str, ...]) -> str:
+    """Render bounded code from already validated dotted module names."""
+
+    return (
+        "import importlib\n"
+        f"for module_name in {modules!r}:\n"
+        "    importlib.import_module(module_name)\n"
+    )
+
+
 class CheckStatus(str, Enum):
     """Observable outcome of one controlled check process."""
 
@@ -162,6 +172,14 @@ def _prepare_check(
             _only_path(planned),
             "test",
             *parameters.labels,
+        )
+    elif planned.name == "django_import_check":
+        argv = (
+            sys.executable,
+            _only_path(planned),
+            "shell",
+            "-c",
+            _django_import_code(parameters.modules),
         )
     elif planned.name == "import_check":
         argv = (

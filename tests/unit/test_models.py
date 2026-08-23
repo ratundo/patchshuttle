@@ -112,6 +112,15 @@ CHECKS: tuple[tuple[dict[str, Any], str], ...] = (
         "django_test",
     ),
     (
+        {
+            "django_import_check": {
+                "manage_py": "manage.py",
+                "modules": ["clients.models", "email_client.views"],
+            }
+        },
+        "django_import_check",
+    ),
+    (
         {"import_check": {"modules": ["patchshuttle", "patchshuttle.cli"]}},
         "import_check",
     ),
@@ -248,12 +257,36 @@ def test_action_parameter_constraints(payload: dict[str, Any]) -> None:
         {"import_check": {"modules": []}},
         {"import_check": {"modules": ["patchshuttle;exit()"]}},
         {"import_check": {"modules": ["patchshuttle..cli"]}},
+        {"django_import_check": {"manage_py": "manage.py", "modules": []}},
+        {
+            "django_import_check": {
+                "manage_py": "manage.py",
+                "modules": ["clients.models;exit()"],
+            }
+        },
         {"profile": {"name": ""}},
     ),
 )
 def test_check_parameter_constraints(payload: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         Check.model_validate(payload)
+
+
+def test_module_import_checks_have_bounded_argument_lists() -> None:
+    with pytest.raises(ValidationError):
+        Check.model_validate(
+            {"import_check": {"modules": [f"module_{index}" for index in range(101)]}}
+        )
+
+    with pytest.raises(ValidationError):
+        Check.model_validate(
+            {"django_import_check": {"manage_py": "manage.py", "modules": ["m" * 8001]}}
+        )
+
+    compileall = Check.model_validate(
+        {"compileall": {"paths": [f"src/path_{index}" for index in range(101)]}}
+    )
+    assert len(compileall.parameters.paths) == 101
 
 
 def test_documented_action_defaults_are_stable() -> None:

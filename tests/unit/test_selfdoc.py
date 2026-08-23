@@ -26,6 +26,7 @@ def test_capabilities_are_stable_and_include_safety_boundaries() -> None:
     )
     assert "job_kinds: [audit, patch, verify]\n" in rendered
     assert "change_actions: [create_directory, create_file, replace_exact" in rendered
+    assert "django_import_check" in rendered
     assert "formatters: [isort, black]\n" in rendered
     assert "arbitrary_shell_action: unavailable\n" in rendered
     assert "protected_path_policy: local and not job-configurable\n" in rendered
@@ -61,6 +62,13 @@ def test_explanation_is_case_insensitive_bounded_and_validated() -> None:
     )
     assert "whitespace: Exact means exact" in rendered
     assert "expected_count: 1\n" in rendered
+
+    formatting = render_explanation("formatting")
+    assert "baseline and final-planned compatibility" in formatting
+    assert "isort_exclude or black_exclude" in formatting
+
+    django_import = render_explanation("django_import_check")
+    assert "manage.py shell -c" in django_import
 
     with pytest.raises(ValueError, match="unknown explanation topic"):
         render_explanation("unknown")

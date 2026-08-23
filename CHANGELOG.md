@@ -28,6 +28,12 @@ uses semantic versioning, including Python-compatible pre-release versions.
   candidates without selecting one automatically.
 - Workspace-independent `capabilities`, `schema`, and `explain TOPIC` commands
   expose the installed protocol surface without weakening protected paths.
+- Local `isort_exclude` and `black_exclude` lists accept exact normalized
+  changed-Python paths. Plans and logs expose a per-file, per-tool decision
+  matrix while jobs remain unable to change formatter policy.
+- `django_import_check` imports bounded dotted module names through
+  `manage.py shell -c`, allowing project checks that require initialized
+  Django settings and the app registry without accepting arbitrary code.
 
 ### Changed
 
@@ -35,12 +41,21 @@ uses semantic versioning, including Python-compatible pre-release versions.
   fixed `LINT_HTML` section plus `html_lint_status` in the summary.
 - HTML linting is disabled by default and cannot be enabled or reconfigured by
   an AI job.
+- Formatter preflight distinguishes an incompatible legacy baseline from
+  incompatibility introduced by planned content, allows a patch that repairs
+  the baseline, and retains bounded Black stderr in planning diagnostics.
+- Black compatibility preflight and execution use the same controlled CLI
+  policy options; Black's ordinary check-only reformat exit remains compatible.
 
 ### Fixed
 
 - Python checks now redirect bytecode caches to an isolated temporary
   directory, so `compileall`, imports, and test collection do not leave
   `__pycache__` entries that can obstruct rollback of a newly created package.
+- A defensive runtime-cache ledger removes only new regular `.pyc` files and
+  newly empty `__pycache__` directories in the changed-Python scope before
+  completion or rollback, while preserving every pre-existing or foreign
+  entry.
 - Binary Python targets are classified before PEP 263 formatter preflight, and
   resolved-diff no-change coverage now uses platform-stable LF bytes.
 - Symlink-dependent tests now skip consistently when the platform or current

@@ -111,6 +111,12 @@ def test_prepare_checks_builds_fixed_commands_for_every_profile(
                     "labels": ["clients.tests"],
                 }
             },
+            {
+                "django_import_check": {
+                    "manage_py": "manage.py",
+                    "modules": ["clients.models"],
+                }
+            },
             {"import_check": {"modules": ["json", "pathlib"]}},
             {"profile": {"name": "local"}},
         ],
@@ -119,7 +125,7 @@ def test_prepare_checks_builds_fixed_commands_for_every_profile(
     prepared = prepare_checks(plan)
 
     assert [item.id for item in prepared] == [
-        f"check_{index:03d}" for index in range(1, 9)
+        f"check_{index:03d}" for index in range(1, 10)
     ]
     assert [item.name for item in prepared] == [
         "compileall",
@@ -128,6 +134,7 @@ def test_prepare_checks_builds_fixed_commands_for_every_profile(
         "django_check",
         "django_migrations_check",
         "django_test",
+        "django_import_check",
         "import_check",
         "profile",
     ]
@@ -173,12 +180,22 @@ def test_prepare_checks_builds_fixed_commands_for_every_profile(
         "test",
         "clients.tests",
     )
-    assert prepared[6].argv[:2] == (sys.executable, "-c")
-    assert prepared[6].argv[-2:] == ("json", "pathlib")
-    assert prepared[7].argv == (sys.executable, "-c", "print('local')")
+    assert prepared[6].argv == (
+        sys.executable,
+        "manage.py",
+        "shell",
+        "-c",
+        "import importlib\n"
+        "for module_name in ('clients.models',):\n"
+        "    importlib.import_module(module_name)\n",
+    )
+    assert prepared[7].argv[:2] == (sys.executable, "-c")
+    assert prepared[7].argv[-2:] == ("json", "pathlib")
+    assert prepared[8].argv == (sys.executable, "-c", "print('local')")
     assert [item.timeout_seconds for item in prepared] == [
         23,
         17,
+        23,
         23,
         23,
         23,
@@ -214,6 +231,49 @@ def test_run_checks_executes_successful_checks_in_order(
     assert not (workspace.root / "src/__pycache__").exists()
     with pytest.raises(FrozenInstanceError):
         run.results[0].status = CheckStatus.FAILED  # type: ignore[misc]
+
+
+def test_django_import_check_uses_manage_py_environment(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (workspace.root / "manage.py").write_text(
+        "import os\n"
+        "import sys\n"
+        "assert sys.argv[1:3] == ['shell', '-c']\n"
+        "os.environ['PATCHSHUTTLE_DJANGO_READY'] = 'yes'\n"
+        "exec(sys.argv[3])\n",
+        encoding="utf-8",
+    )
+    (workspace.root / "requires_django.py").write_text(
+        "import os\n"
+        "if os.environ.get('PATCHSHUTTLE_DJANGO_READY') != 'yes':\n"
+        "    raise RuntimeError('Django environment is not initialized')\n",
+        encoding="utf-8",
+    )
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        planner_module,
+        "find_spec",
+        lambda name: object() if name == "django" else real_find_spec(name),
+    )
+    plan = verify_plan(
+        workspace,
+        [
+            {
+                "django_import_check": {
+                    "manage_py": "manage.py",
+                    "modules": ["requires_django"],
+                }
+            }
+        ],
+    )
+
+    result = run_checks(plan).results[0]
+
+    assert result.status is CheckStatus.PASSED
+    assert result.return_code == 0
+    assert not (workspace.root / "__pycache__").exists()
 
 
 def test_run_checks_stops_after_first_nonzero_exit_and_captures_streams(

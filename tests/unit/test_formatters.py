@@ -56,6 +56,21 @@ def formatting_plan(workspace: Workspace, *, path: str = "src/module.py") -> Pla
     return plan_job(job, workspace)
 
 
+def with_exclusions(
+    workspace: Workspace,
+    *,
+    isort: tuple[str, ...] = (),
+    black: tuple[str, ...] = (),
+) -> Workspace:
+    formatting = workspace.config.formatting.model_copy(
+        update={"isort_exclude": isort, "black_exclude": black}
+    )
+    return replace(
+        workspace,
+        config=workspace.config.model_copy(update={"formatting": formatting}),
+    )
+
+
 def completed_process(
     status: ProcessStatus = ProcessStatus.PASSED,
     *,
@@ -104,6 +119,13 @@ def test_prepare_formatters_builds_fixed_scoped_commands(
         "-I",
         "-m",
         "black",
+        "--no-cache",
+        "--exclude",
+        "",
+        "--extend-exclude",
+        "",
+        "--force-exclude",
+        "",
         "--",
         "src/module.py",
     )
@@ -144,6 +166,89 @@ def test_run_formatters_executes_in_order_and_maps_results(
     assert completed_process(ProcessStatus.FAILED, return_code=1).success is False
     with pytest.raises(FrozenInstanceError):
         run.results[0].status = FormatterStatus.FAILED  # type: ignore[misc]
+
+
+def test_formatter_commands_use_per_tool_local_exclusion_scopes(
+    workspace: Workspace,
+) -> None:
+    workspace = with_exclusions(
+        workspace,
+        isort=("src/first.py",),
+        black=("src/second.py",),
+    )
+    job = Job(
+        protocol=1,
+        project_id=PROJECT_ID,
+        id="PATCH-FORMATTER-SCOPES",
+        kind="patch",
+        actions=[
+            {
+                "create_file": {
+                    "path": "src/first.py",
+                    "content": "FIRST=1\n",
+                }
+            },
+            {
+                "create_file": {
+                    "path": "src/second.py",
+                    "content": "SECOND=2\n",
+                }
+            },
+        ],
+        checks=[{"import_check": {"modules": ["json"]}}],
+    )
+    plan = plan_job(job, workspace)
+
+    prepared = prepare_formatters(plan)
+
+    assert plan.formatter_paths("isort") == (PurePosixPath("src/second.py"),)
+    assert plan.formatter_paths("black") == (PurePosixPath("src/first.py"),)
+    assert plan.formatter_run_paths == (
+        PurePosixPath("src/first.py"),
+        PurePosixPath("src/second.py"),
+    )
+    assert prepared[0].argv[-2:] == ("--", "src/second.py")
+    assert prepared[1].argv[-2:] == ("--", "src/first.py")
+
+
+def test_all_formatter_targets_can_be_skipped_only_by_local_policy(
+    workspace: Workspace,
+) -> None:
+    workspace = with_exclusions(
+        workspace,
+        isort=("src/module.py",),
+        black=("src/module.py",),
+    )
+    plan = formatting_plan(workspace)
+
+    assert prepare_formatters(plan) == ()
+    assert capture_formatted_files(plan) == ()
+
+
+@pytest.mark.parametrize(
+    ("isort_exclude", "black_exclude", "expected_id", "expected_name"),
+    (
+        (("src/module.py",), (), "formatter_002", "black"),
+        ((), ("src/module.py",), "formatter_001", "isort"),
+    ),
+)
+def test_single_active_formatter_keeps_its_protocol_identity(
+    workspace: Workspace,
+    isort_exclude: tuple[str, ...],
+    black_exclude: tuple[str, ...],
+    expected_id: str,
+    expected_name: str,
+) -> None:
+    workspace = with_exclusions(
+        workspace,
+        isort=isort_exclude,
+        black=black_exclude,
+    )
+    plan = formatting_plan(workspace)
+
+    prepared = prepare_formatters(plan)
+
+    assert [(item.id, item.name) for item in prepared] == [(expected_id, expected_name)]
 
 
 @pytest.mark.parametrize(
@@ -187,6 +292,9 @@ def test_prepare_formatters_rejects_forged_scope_and_order(
 
     with pytest.raises(ValueError, match="formatting targets"):
         prepare_formatters(replace(plan, formatting_targets=()))
+
+    with pytest.raises(ValueError, match="formatter policy"):
+        prepare_formatters(replace(plan, formatter_plan=()))
 
     formatting = workspace.config.formatting.model_copy(
         update={"order": ("black", "isort")}

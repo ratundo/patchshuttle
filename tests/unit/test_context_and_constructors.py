@@ -39,6 +39,7 @@ from patchshuttle.actions import (
 from patchshuttle.checks import (
     compileall,
     django_check,
+    django_import_check,
     django_migrations_check,
     django_test,
     import_check,
@@ -233,6 +234,15 @@ def test_all_check_constructors_match_yaml_models() -> None:
             django_test(labels=["app.tests"]),
             {"django_test": {"manage_py": "manage.py", "labels": ["app.tests"]}},
         ),
+        (
+            django_import_check(["app.models"]),
+            {
+                "django_import_check": {
+                    "manage_py": "manage.py",
+                    "modules": ["app.models"],
+                }
+            },
+        ),
         (import_check(["json"]), {"import_check": {"modules": ["json"]}}),
         (profile("local"), {"profile": {"name": "local"}}),
     )
@@ -265,6 +275,8 @@ def test_constructors_retain_strict_model_validation() -> None:
         search("")
     with pytest.raises(ValidationError):
         import_check(["json; unsafe"])
+    with pytest.raises(ValidationError):
+        django_import_check(["app.models; unsafe"])
     with pytest.raises(ValidationError):
         pytest_check(timeout_seconds=0)
 

@@ -15,6 +15,7 @@ from patchshuttle._version import __version__
 from patchshuttle.audit import AuditActionResult
 from patchshuttle.checks import CheckResult
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode
+from patchshuttle.formatter_policy import FORMATTER_ORDER, FormatterName
 from patchshuttle.formatters import FormatterResult
 from patchshuttle.inventory import WorkspaceComparison
 from patchshuttle.linters import HtmlLintResult
@@ -345,8 +346,16 @@ def _render_log(data: RunLogData, log_path: Path) -> str:
         "ACTIONS": _actions_section(data),
         "LINT_HTML": _html_lint_section(data),
         "INITIAL_CHECKS": _checks_section(_split_checks(data)[0], data.workspace),
-        "FORMAT_ISORT": _formatter_section(_formatter(data, "isort"), data.workspace),
-        "FORMAT_BLACK": _formatter_section(_formatter(data, "black"), data.workspace),
+        "FORMAT_ISORT": _formatter_section(
+            _formatter(data, "isort"),
+            data.workspace,
+            skipped_by_local_policy=_formatter_skipped(data, "isort"),
+        ),
+        "FORMAT_BLACK": _formatter_section(
+            _formatter(data, "black"),
+            data.workspace,
+            skipped_by_local_policy=_formatter_skipped(data, "black"),
+        ),
         "FINAL_CHECKS": _checks_section(_split_checks(data)[1], data.workspace),
         "WORKSPACE_COMPARISON": _comparison_section(data),
         "ROLLBACK": _rollback_section(data),
@@ -405,11 +414,26 @@ def _plan_section(plan: Plan | None) -> str:
         f"files_to_modify: {_json_paths(plan.files_to_modify)}",
         f"directories_to_create: {_json_paths(plan.directories_to_create)}",
         f"formatting_scope: {_json_paths(plan.formatting_targets)}",
-        f"html_lint_scope: {_json_paths(plan.html_lint_targets)}",
-        f"preflight_checks: {len(plan.preflight_checks)}",
-        "protected_paths: PASS",
-        f"automatic_rollback: {'enabled' if plan.auto_rollback else 'disabled'}",
+        f"formatter_plan: {len(plan.formatter_plan)}",
     ]
+    for item in plan.formatter_plan:
+        lines.append(
+            "formatter: "
+            f"{item.path.as_posix()} -> {item.formatter} {item.decision.value} "
+            f"(baseline={item.baseline.value}, planned={item.planned.value})"
+        )
+        if item.baseline.value == "INCOMPATIBLE":
+            lines.append(f"formatter_baseline_detail: {_scalar(item.baseline_detail)}")
+        if item.planned.value == "INCOMPATIBLE":
+            lines.append(f"formatter_planned_detail: {_scalar(item.planned_detail)}")
+    lines.extend(
+        (
+            f"html_lint_scope: {_json_paths(plan.html_lint_targets)}",
+            f"preflight_checks: {len(plan.preflight_checks)}",
+            "protected_paths: PASS",
+            f"automatic_rollback: {'enabled' if plan.auto_rollback else 'disabled'}",
+        )
+    )
     return "\n".join(lines)
 
 
@@ -546,9 +570,11 @@ def _check_record(item: CheckResult, workspace: Workspace) -> str:
 def _formatter_section(
     item: FormatterResult | None,
     workspace: Workspace,
+    *,
+    skipped_by_local_policy: bool,
 ) -> str:
     if item is None:
-        return "NOT_APPLICABLE"
+        return "SKIPPED_LOCAL_POLICY" if skipped_by_local_policy else "NOT_APPLICABLE"
     include_output = workspace.config.logging.include_command_output
     return _fields(
         formatter_id=item.id,
@@ -563,6 +589,14 @@ def _formatter_section(
         stdout_truncated=item.stdout_truncated,
         stderr_truncated=item.stderr_truncated,
         status=item.status.value,
+    )
+
+
+def _formatter_skipped(data: RunLogData, name: FormatterName) -> bool:
+    return bool(
+        data.plan is not None
+        and data.plan.formatting_targets
+        and not data.plan.formatter_paths(name)
     )
 
 
@@ -634,15 +668,21 @@ def _summary_section(data: RunLogData, log_path: Path) -> str:
     initial, final = _split_checks(data)
     formatters = _formatters(data)
     html_lints = _html_lints(data)
-    formatting_status = (
-        "NOT_APPLICABLE"
-        if data.plan is None or not data.plan.formatting_targets
-        else (
-            "PASSED"
-            if len(formatters) == 2 and all(item.success for item in formatters)
-            else "FAILED" if formatters else "NOT_STARTED"
-        )
+    expected_formatters = (
+        ()
+        if data.plan is None
+        else tuple(name for name in FORMATTER_ORDER if data.plan.formatter_paths(name))
     )
+    if data.plan is None or not data.plan.formatting_targets:
+        formatting_status = "NOT_APPLICABLE"
+    elif not expected_formatters:
+        formatting_status = "SKIPPED_LOCAL_POLICY"
+    elif len(formatters) == len(expected_formatters) and all(
+        item.success for item in formatters
+    ):
+        formatting_status = "PASSED"
+    else:
+        formatting_status = "FAILED" if formatters else "NOT_STARTED"
     html_lint_status = (
         "NOT_APPLICABLE"
         if data.plan is None or not data.plan.html_lint_targets

@@ -27,13 +27,16 @@ from pathlib import Path
 
 from patchshuttle import Job, execute_plan, init_workspace, load_workspace, plan_job
 from patchshuttle.actions import create_file, environment
-from patchshuttle.checks import compileall
+from patchshuttle.checks import compileall, django_import_check
 from patchshuttle.selfdoc import render_capabilities, render_explanation, render_schema
 
 assert version("patchshuttle") == EXPECTED_VERSION
 assert "arbitrary_shell_action: unavailable" in render_capabilities()
+assert "django_import_check" in render_capabilities()
 assert '"title": "Job"' in render_schema()
 assert "topic: replace_exact" in render_explanation("replace_exact")
+assert "isort_exclude or black_exclude" in render_explanation("formatting")
+assert django_import_check(("app.models",)).name == "django_import_check"
 root = Path.cwd() / "index-project"
 root.mkdir()
 workspace = init_workspace(root, new_project=True).workspace

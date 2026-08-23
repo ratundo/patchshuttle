@@ -57,6 +57,7 @@ name.
 - `django_check`: `manage_py`.
 - `django_migrations_check`: `manage_py`.
 - `django_test`: `manage_py` and optional dotted-identifier `labels`.
+- `django_import_check`: `manage_py` and non-empty dotted Python `modules`.
 - `import_check`: non-empty dotted Python `modules`.
 - `profile`: `name` of a local profile already defined in
   `patches/patchshuttle.toml`.
@@ -64,10 +65,10 @@ name.
 ## Local authority and safety
 
 Jobs cannot change project identity, protected paths, confirmation, backups,
-rollback, formatting order, HTML lint policy, command allowlists, size limits,
-or shell policy. There is no arbitrary-shell action. Project checks can execute
-project code with the current user's permissions, so PatchShuttle is not an
-operating-system sandbox.
+rollback, formatting order or exclusions, HTML lint policy, command allowlists,
+size limits, or shell policy. There is no arbitrary-shell action. Project
+checks can execute project code with the current user's permissions, so
+PatchShuttle is not an operating-system sandbox.
 
 All job paths are relative to the workspace root. The implemented planner
 rejects absolute paths, parent traversal, protected or ignored targets,
@@ -100,13 +101,17 @@ combined with `--yes`. It is not a YAML field and local policy may forbid it.
 
 Audit output and traversal are bounded and a workspace comparison verifies
 read-only behavior. Verify jobs run their checks once and record workspace side
-effects. Planning requires changed Python files to pass PEP 263 encoding,
-isort, and Black compatibility checks. Patch execution can include locally
-enabled changed-HTML djLint checks, followed by controlled initial checks,
-scoped isort then Black, repeated final checks, bounded before/after workspace
-inventory, and automatic rollback. Final changes outside declared transaction
-paths and configured ignored paths are reported as
-`UNEXPECTED_WORKSPACE_CHANGE`.
+effects. Planning records baseline and final-planned isort/Black compatibility
+for each non-excluded changed Python path. It rejects a newly introduced
+formatter incompatibility separately from a pre-existing incompatibility that
+remains after the change. Exact `.py` exclusions may be configured only by the
+workspace owner in `[formatting]`; a job cannot add them. Patch execution can
+include locally enabled changed-HTML djLint checks, followed by controlled
+initial checks, per-tool scoped isort then Black, repeated final checks,
+defensive removal of new runtime `.pyc` files within the changed-Python scope,
+bounded before/after workspace inventory, and automatic rollback. Final
+changes outside declared transaction paths and configured ignored paths are
+reported as `UNEXPECTED_WORKSPACE_CHANGE`.
 HTML content is passed through stdin from an isolated configuration root;
 project `pyproject.toml`, `djlint.toml`, and `.djlintrc` settings cannot override
 the local PatchShuttle lint profile or ignore list.

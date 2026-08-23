@@ -1018,6 +1018,17 @@ def _render_plan(plan: Plan, *, show_diff: bool = False) -> str:
         for check in plan.checks
     )
     _append_path_list(lines, "formatting_scope", plan.formatting_targets)
+    lines.append(f"formatter_plan: {len(plan.formatter_plan)}")
+    for item in plan.formatter_plan:
+        lines.append(
+            "  - "
+            f"{item.path.as_posix()} -> {item.formatter} {item.decision.value} "
+            f"(baseline={item.baseline.value}, planned={item.planned.value})"
+        )
+        if item.baseline.value == "INCOMPATIBLE":
+            lines.append(f"    baseline_detail: {item.baseline_detail}")
+        if item.planned.value == "INCOMPATIBLE":
+            lines.append(f"    planned_detail: {item.planned_detail}")
     _append_path_list(lines, "html_lint_scope", plan.html_lint_targets)
     lines.append(f"preflight_checks: {len(plan.preflight_checks)}")
     lines.extend(

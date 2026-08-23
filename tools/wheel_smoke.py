@@ -27,20 +27,19 @@ from patchshuttle import (
     rollback_job,
 )
 from patchshuttle.actions import create_file, hash
-from patchshuttle.checks import compileall
+from patchshuttle.checks import compileall, django_import_check
 
 root = Path.cwd() / "project"
 root.mkdir()
 workspace = init_workspace(root, new_project=True).workspace
 workspace.config_path.write_text(
-    workspace.config_path.read_text("utf-8").replace(
-        "enabled = false",
-        "enabled = true",
-        1,
-    ),
+    workspace.config_path.read_text("utf-8")
+    .replace("enabled = false", "enabled = true", 1)
+    .replace("black_exclude = []", 'black_exclude = ["legacy.py"]'),
     encoding="utf-8",
 )
 workspace = load_workspace(root)
+assert django_import_check(("app.models",)).name == "django_import_check"
 
 html = Job(
     protocol=1,
@@ -79,6 +78,18 @@ patched = execute_plan(plan_job(patch, workspace), approved=True)
 assert patched.status.value == "COMPLETED"
 assert (root / "hello.py").read_text("utf-8") == "VALUE = 1\n"
 
+legacy = Job(
+    protocol=1,
+    project_id=workspace.project_id,
+    id="SMOKE-LEGACY",
+    kind="patch",
+    actions=(create_file("legacy.py", "VALUE=2\n"),),
+    checks=(compileall(("legacy.py",)),),
+)
+legacy_result = execute_plan(plan_job(legacy, workspace), approved=True)
+assert [item.name for item in legacy_result.formatting_results] == ["isort"]
+assert (root / "legacy.py").read_text("utf-8") == "VALUE=2\n"
+
 audit = Job(
     protocol=1,
     project_id=workspace.project_id,
@@ -104,6 +115,9 @@ assert create_handoff(workspace).path.is_file()
 rolled_back = rollback_job(workspace, patch.id, approved=True)
 assert rolled_back.job_id == patch.id
 assert not (root / "hello.py").exists()
+legacy_rollback = rollback_job(workspace, legacy.id, approved=True)
+assert legacy_rollback.job_id == legacy.id
+assert not (root / "legacy.py").exists()
 html_rollback = rollback_job(workspace, html.id, approved=True)
 assert html_rollback.job_id == html.id
 assert not (root / "templates/page.html").exists()

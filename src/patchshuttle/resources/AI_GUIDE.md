@@ -27,8 +27,9 @@ When asked for a PatchShuttle job:
    explicitly requests a correction of that same attempt.
 8. Never add confirmation or rollback choices to YAML. `--yes` and
    `--keep-changes` are user-controlled CLI decisions, not job fields.
-9. Never add formatter or HTML linter settings to YAML. Those settings belong
-   only to the user's local `patches/patchshuttle.toml` policy.
+9. Never add formatter settings, formatter exclusions, or HTML linter settings
+   to YAML. Those settings belong only to the user's local
+   `patches/patchshuttle.toml` policy.
 
 ## Job kinds
 
@@ -69,6 +70,8 @@ When asked for a PatchShuttle job:
 - `django_check`
 - `django_migrations_check`
 - `django_test` - labels must be dotted Python identifiers.
+- `django_import_check` - use for dotted modules that require Django settings
+  or app-registry initialization; include `manage_py` and `modules`.
 - `import_check`
 - `profile` - only a profile already defined by the user in
   `patches/patchshuttle.toml`.
@@ -122,6 +125,15 @@ checks:
       args: [-q]
 ```
 
+When an import requires Django initialization, request the dedicated check:
+
+```yaml
+checks:
+  - django_import_check:
+      manage_py: manage.py
+      modules: [email_client.views, email_client.urls]
+```
+
 ## Local workflow
 
 The user saves the YAML in `patches/inbox/`, validates it, runs
@@ -147,6 +159,15 @@ current directory is outside the project, the user can place a global
 `--workspace PATH` option before the command. A reported child-workspace hint
 is advisory; never assume that candidate was selected.
 
+Read the formatter matrix in every plan. `RUN` means that formatter will touch
+that exact path. `SKIP_LOCAL_POLICY` is an owner-controlled exception and must
+not be copied into YAML. `FORMATTER_PATCH_INCOMPATIBLE` means the planned
+content is incompatible after a compatible or absent baseline, so correct the
+patch. `FORMATTER_BASELINE_INCOMPATIBLE` means the file was already
+incompatible and remains so; do not ask to bypass safety policy. The owner may
+deliberately add an exact local exclusion, or the next patch may repair the
+file. A plan with `baseline=INCOMPATIBLE, planned=PASS` is a valid repair.
+
 Interpret failure states conservatively:
 
 - `ROLLED_BACK` means declared transaction paths were restored, but reported
@@ -162,11 +183,12 @@ This build provides workspace initialization, validation, read-only
 planning, bounded audit execution, approved patch execution, and approved
 one-pass verification. Patch execution uses all text change actions,
 optional changed-HTML linting under local policy, controlled initial checks,
-changed-Python-only isort then Black, final checks, bounded before/after
-workspace inventory, undeclared side-effect reporting, rollback of declared
-transaction paths, exact CLI job archives, an atomic registry, and
-fixed-section redacted logs. Planning checks PEP 263 Python encoding and
-formatter compatibility before confirmation. HTML content is linted through
+per-tool changed-Python isort then Black scopes, final checks, bounded
+before/after workspace inventory, defensive runtime-cache cleanup, undeclared
+side-effect reporting, rollback of declared transaction paths, exact CLI job
+archives, an atomic registry, and fixed-section redacted logs. Planning records
+PEP 263 Python encoding plus baseline and final-planned formatter compatibility
+before confirmation. HTML content is linted through
 stdin from an isolated configuration root, so a job cannot weaken local lint
 policy through project djLint settings. Completed patches also support guarded
 manual rollback. An explicitly user-approved `--keep-changes` run can

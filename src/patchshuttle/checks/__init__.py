@@ -3,6 +3,7 @@
 from patchshuttle.checks.constructors import (
     compileall,
     django_check,
+    django_import_check,
     django_migrations_check,
     django_test,
     import_check,
@@ -26,6 +27,7 @@ __all__ = [
     "PreparedCheck",
     "compileall",
     "django_check",
+    "django_import_check",
     "django_migrations_check",
     "django_test",
     "import_check",

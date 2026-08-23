@@ -12,6 +12,7 @@ import patchshuttle.logging as logging_module
 import patchshuttle.workspace as workspace_module
 from patchshuttle.checks import CheckResult, CheckStatus
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode
+from patchshuttle.formatter_policy import FormatterCompatibility
 from patchshuttle.formatters import FormatterResult, FormatterStatus
 from patchshuttle.logging import (
     STANDARD_SECTIONS,
@@ -373,3 +374,58 @@ def test_latest_log_inspection_and_both_new_file_failure_paths(
             logging_module._write_new_file(partial, b"partial\n")
     assert partial.read_bytes() == b"partial\n"
     partial.unlink()
+
+
+def test_plan_log_records_formatter_details_and_all_local_policy_skip(
+    workspace: Workspace,
+) -> None:
+    formatting = workspace.config.formatting.model_copy(
+        update={
+            "isort_exclude": ("module.py",),
+            "black_exclude": ("module.py",),
+        }
+    )
+    configured = replace(
+        workspace,
+        config=workspace.config.model_copy(update={"formatting": formatting}),
+    )
+    job = Job(
+        protocol=1,
+        project_id=PROJECT_ID,
+        id="PATCH-FORMATTER-LOG",
+        kind="patch",
+        actions=[{"create_file": {"path": "module.py", "content": "VALUE = 1\n"}}],
+        checks=[{"compileall": {"paths": ["module.py"]}}],
+    )
+    plan = plan_job(job, configured)
+    target = replace(
+        plan.formatter_plan[0],
+        baseline=FormatterCompatibility.INCOMPATIBLE,
+        planned=FormatterCompatibility.INCOMPATIBLE,
+        baseline_detail="legacy\nstderr",
+        planned_detail="planned\nstderr",
+    )
+    detailed = replace(plan, formatter_plan=(target, *plan.formatter_plan[1:]))
+
+    section = logging_module._plan_section(detailed)
+    assert "formatter_baseline_detail: legacy\\nstderr" in section
+    assert "formatter_planned_detail: planned\\nstderr" in section
+
+    path = write_run_log(
+        RunLogData(
+            workspace=configured,
+            job=job,
+            job_hash=plan.job_hash,
+            clock=RunClock(INSTANT),
+            result="COMPLETED",
+            exit_code=0,
+            failure_stage=None,
+            failure_code=None,
+            archived_job_path=Path("/outside/source.psh.yaml"),
+            plan=plan,
+        )
+    )
+    text = path.read_text("utf-8")
+    assert "=== FORMAT_ISORT ===\nSKIPPED_LOCAL_POLICY" in text
+    assert "=== FORMAT_BLACK ===\nSKIPPED_LOCAL_POLICY" in text
+    assert "formatting_status: SKIPPED_LOCAL_POLICY" in text

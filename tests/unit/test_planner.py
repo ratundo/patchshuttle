@@ -1080,6 +1080,12 @@ def test_unified_diff_rejections_have_stable_codes(
         {"django_check": {"manage_py": "manage.py"}},
         {"django_migrations_check": {"manage_py": "manage.py"}},
         {"django_test": {"manage_py": "manage.py", "labels": ["app.tests"]}},
+        {
+            "django_import_check": {
+                "manage_py": "manage.py",
+                "modules": ["app.models"],
+            }
+        },
         {"import_check": {"modules": ["patchshuttle"]}},
         {"profile": {"name": "project_tests"}},
     ),

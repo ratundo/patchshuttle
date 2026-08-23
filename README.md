@@ -22,8 +22,9 @@ records the result for the next iteration.
 > [!NOTE]
 > The current unreleased source adds AI-facing planner diagnostics, formatter
 > preflight, optional HTML linting, failure-attempt logs, explicit workspace
-> routing, and workspace-independent self-documentation. These additions are
-> not part of the published `0.1.0a2` package yet.
+> routing, workspace-independent self-documentation, per-file formatter policy,
+> a Django-aware import check, and defensive runtime-cache cleanup. These
+> additions are not part of the published `0.1.0a2` package yet.
 
 ## Design goals
 
@@ -61,6 +62,25 @@ python -m pip install -e ".[dev,html]"
 
 The extra installs djLint. HTML linting still remains disabled until the local
 workspace configuration explicitly enables it.
+
+Formatter exclusions are explicit user-owned local policy. New workspaces
+contain empty lists in `[formatting]`; an older workspace may add the keys to
+its existing section:
+
+```toml
+[formatting]
+enabled = true
+order = ["isort", "black"]
+scope = "changed_python_files"
+rerun_checks = true
+isort_exclude = []
+black_exclude = ["email_client/views.py"]
+```
+
+Each entry must be one exact normalized workspace-relative `.py` path. An
+excluded file still receives the requested project checks. The exclusion only
+skips the named formatter, is shown in the plan and log, and cannot be supplied
+or changed by an AI job. Strict formatting remains the default.
 
 For a newly initialized workspace, edit the generated block in
 `patches/patchshuttle.toml`. For an older workspace that does not yet contain
@@ -224,6 +244,20 @@ schema = Job.model_json_schema()
 The models reject unknown fields, enforce protocol and identifier formats, and
 keep validated data immutable. They do not execute the requested operations.
 
+For modules that require Django settings or app-registry initialization, use
+the controlled Django-aware check instead of the plain `import_check`:
+
+```yaml
+checks:
+  - django_import_check:
+      manage_py: manage.py
+      modules: [email_client.views, email_client.urls]
+```
+
+PatchShuttle runs the current interpreter with `manage.py shell -c` and
+internally generated import code. The YAML accepts only bounded dotted module
+identifiers, not an arbitrary expression or shell command.
+
 Load a job from disk with the same validation contract:
 
 ```python
@@ -252,9 +286,10 @@ patchshuttle plan patches/examples/PATCH-EXAMPLE.psh.yaml --diff
 
 The command displays the normalized job hash, sequential action dispositions,
 files and directories that would be created or modified, requested checks,
-Python formatting scope, optional HTML lint scope, successful quality
-preflight records, protected-path result, backup destination template,
-rollback policy, and whether later execution will require confirmation.
+Python formatting scope, a per-file isort/Black decision matrix, optional HTML
+lint scope, successful quality preflight records, protected-path result, backup
+destination template, rollback policy, and whether later execution will
+require confirmation.
 `--diff` also prints a bounded unified preview of the final resolved bytes
 without writing them.
 
@@ -273,8 +308,13 @@ Planning performs the complete implemented read-only preflight:
   symbolic links, special files, and file-size violations;
 - validates check paths, the conservative pytest argument allowlist, dotted
   Django labels, local profiles, and required Python modules;
-- detects Python source encodings with the PEP 263 mechanism and requires
-  isort and Black to accept every final planned changed-Python file;
+- detects Python source encodings with the PEP 263 mechanism and records
+  separate baseline and final-planned compatibility for isort and Black on
+  every non-excluded changed-Python file;
+- reports `FORMATTER_BASELINE_INCOMPATIBLE` when both the existing and planned
+  file remain incompatible, `FORMATTER_PATCH_INCOMPATIBLE` when the planned
+  change introduces incompatibility, and allows a plan that repairs an
+  incompatible baseline;
 - when locally enabled, passes every final planned changed `.html` file to
   djLint through stdin from an isolated temporary configuration root before
   confirmation;
@@ -408,22 +448,26 @@ For a supported plan, the implemented sequence is:
    bytecode caches redirected to an isolated temporary directory;
 9. stop on the first failed, timed-out, or unstartable initial check and verify
    that the checks did not change any declared transaction file;
-10. capture the approved changed-Python scope, then run isort followed by Black
-   only on those exact relative paths using the current interpreter in isolated
-   mode, fixed argument arrays, `shell=False`, and the same timeout and bounded
-   output controls;
+10. resolve the per-file local formatter policy, then run isort followed by
+    Black only on each tool's exact non-excluded relative paths using the
+    current interpreter in isolated mode, fixed argument arrays, `shell=False`,
+    and the same timeout and bounded output controls;
 11. stop on formatter failure, reject changes to declared non-Python files,
    reject oversized or non-regular formatter targets, and retain the formatted
    bytes, SHA-256 hashes, sizes, and modes;
 12. when configured, repeat the same checks and require every formatted and
     non-formatted transaction file to retain its exact approved post-state;
-13. capture the final bounded inventory and classify added, removed, modified,
+13. remove only new regular `.pyc` files and newly empty `__pycache__`
+    directories within the bounded changed-Python scope, preserving every
+    pre-existing or foreign entry and treating unresolved cache paths as a
+    transaction failure;
+14. capture the final bounded inventory and classify added, removed, modified,
     and type-changed paths as declared or unexpected;
-14. mark the manifest `COMPLETED`, or restore modified originals and remove
+15. mark the manifest `COMPLETED`, or restore modified originals and remove
     only paths created by this attempt before recording `ROLLED_BACK` or
     `ROLLBACK_FAILED`; an explicitly accepted `--keep-changes` run instead
     records `CHANGES_KEPT` when a failed job published declared changes;
-15. archive the exact CLI source job, write a fixed-section UTF-8 log with a
+16. archive the exact CLI source job, write a fixed-section UTF-8 log with a
    compact AI handoff block, and atomically commit registry state before
    releasing the workspace lock.
 
@@ -434,14 +478,17 @@ refuses to follow symbolic links or remove foreign non-empty directories, and
 does not claim success when a tracked path cannot be restored.
 
 The internal check runner supports `compileall`, `pytest`, `unittest`, Django
-checks and tests, validated module imports, and locally configured profiles. It
+checks and tests, plain validated module imports, Django-aware validated module
+imports through `manage.py shell -c`, and locally configured profiles. It
 inherits the current process environment because project checks execute project
 code and PatchShuttle is not an operating-system sandbox. PatchShuttle overrides
-`PYTHONPYCACHEPREFIX` with a fresh temporary directory for each check and removes
-that directory afterward, keeping generated Python bytecode outside the
-workspace. Formatter order is fixed to isort then Black for protocol 1;
-non-Python jobs skip formatting and do not repeat checks. Optional djLint uses a
-locally selected template profile,
+`PYTHONPYCACHEPREFIX` with a fresh temporary directory for each check and
+removes that directory afterward, keeping ordinary generated Python bytecode
+outside the workspace. A defensive cache ledger also handles `.pyc` files
+created inside newly added packages despite that override. Formatter order is
+fixed to isort then Black for protocol 1; local exact-path exclusions are
+resolved separately for each tool. Non-Python jobs skip formatting and do not
+repeat checks. Optional djLint uses a locally selected template profile,
 targets only changed `.html` files, never reformats them, and triggers the same
 rollback path on failure. It reads content through stdin from an isolated
 temporary configuration root, so project djLint configuration cannot weaken
@@ -603,8 +650,8 @@ The implemented local cycle is:
 2. Receive one declarative `.psh.yaml` job.
 3. Review the local execution plan.
 4. Execute an audit, approved patch, or approved verification job.
-5. For a patch, run optional changed-HTML linting, controlled checks, isort,
-   Black, and final checks.
+5. For a patch, run optional changed-HTML linting, controlled checks, the
+   locally resolved isort/Black scopes, and final checks.
 6. Receive a timestamped log or generate a fresh handoff.
 7. Review the log, upload it to the AI, and continue with the next job.
 

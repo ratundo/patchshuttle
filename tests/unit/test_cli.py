@@ -1,6 +1,7 @@
 """Contract tests for the implemented command-line surface."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,8 @@ from patchshuttle.errors import (
     WorkspaceErrorCode,
 )
 from patchshuttle.execution import RunResult, RunStatus
+from patchshuttle.formatter_policy import FormatterCompatibility
+from patchshuttle.models import Job
 from patchshuttle.workspace import init_workspace
 
 VALID_AUDIT_YAML = """\
@@ -386,6 +389,15 @@ def test_plan_reports_complete_patch_preview_without_writing(
     assert "directories_to_create: 1\n  - src\n" in result.stdout
     assert "requested_checks: 1\n  - check_001 compileall: src\n" in result.stdout
     assert "formatting_scope: 1\n  - src/example.py\n" in result.stdout
+    assert "formatter_plan: 2\n" in result.stdout
+    assert (
+        "  - src/example.py -> isort RUN "
+        "(baseline=NOT_APPLICABLE, planned=PASS)\n" in result.stdout
+    )
+    assert (
+        "  - src/example.py -> black RUN "
+        "(baseline=NOT_APPLICABLE, planned=PASS)\n" in result.stdout
+    )
     assert "html_lint_scope: 0\n" in result.stdout
     assert "preflight_checks: 3\n" in result.stdout
     assert "protected_paths: PASS\n" in result.stdout
@@ -397,6 +409,45 @@ def test_plan_reports_complete_patch_preview_without_writing(
     assert result.stdout.endswith("confirmation_required: yes\n")
     assert file_snapshot(tmp_path) == before
     assert not (tmp_path / "src").exists()
+
+
+def test_plan_renderer_includes_bounded_formatter_incompatibility_details(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    workspace = workspace_module.load_workspace(tmp_path)
+    plan = cli_module.plan_job(
+        Job(
+            protocol=1,
+            project_id=workspace.project_id,
+            id="PATCH-FORMATTER-DETAILS",
+            kind="patch",
+            actions=[
+                {
+                    "create_file": {
+                        "path": "module.py",
+                        "content": "VALUE = 1\n",
+                    }
+                }
+            ],
+            checks=[{"compileall": {"paths": ["module.py"]}}],
+        ),
+        workspace,
+    )
+    target = replace(
+        plan.formatter_plan[0],
+        baseline=FormatterCompatibility.INCOMPATIBLE,
+        planned=FormatterCompatibility.INCOMPATIBLE,
+        baseline_detail="legacy formatter stderr",
+        planned_detail="planned formatter stderr",
+    )
+    forged = replace(plan, formatter_plan=(target, *plan.formatter_plan[1:]))
+
+    rendered = cli_module._render_plan(forged, show_diff=False)
+
+    assert "    baseline_detail: legacy formatter stderr\n" in rendered
+    assert "    planned_detail: planned formatter stderr\n" in rendered
 
 
 def test_plan_diff_prints_resolved_preview_without_writing(
