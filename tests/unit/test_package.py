@@ -1,6 +1,5 @@
 """Contract tests for the installable package surface."""
 
-from importlib.metadata import version
 from pathlib import Path
 
 try:
@@ -11,9 +10,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 import patchshuttle
 
 
-def test_public_version_matches_distribution_metadata() -> None:
-    assert patchshuttle.__version__ == "0.1.0a2"
-    assert version("patchshuttle") == patchshuttle.__version__
+def test_public_version_matches_release_candidate() -> None:
+    assert patchshuttle.__version__ == "0.1.0a3"
 
 
 def test_build_metadata_stays_compatible_with_release_tooling() -> None:

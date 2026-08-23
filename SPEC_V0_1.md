@@ -13,18 +13,18 @@
 > on 2026-08-16, followed by successful TestPyPI qualification, production
 > PyPI publication, and a clean installation smoke test. A recorded ChatGPT
 > end-to-end workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
-> Version `0.1.0a2` remains an alpha pre-release, not stable `0.1.0`.
-> Unreleased next-alpha work adds AI-facing mismatch diagnostics, resolved
-> diff previews, Python formatter preflight, opt-in changed-HTML linting,
-> early failure logs, explicit workspace routing, and installed-contract
+> Version `0.1.0a3` is the next alpha release candidate, not stable `0.1.0`.
+> Compared with published `0.1.0a2`, it adds AI-facing mismatch diagnostics,
+> resolved diff previews, Python formatter preflight, opt-in changed-HTML
+> linting, early failure logs, explicit workspace routing, installed-contract
 > self-documentation, per-file formatter policy, Django-aware import checks,
-> defensive runtime-cache cleanup, and guarded physical-line range actions;
-> those changes are not part of the published `0.1.0a2` evidence.
-> The current unreleased source passed 834 local tests on Linux/Python 3.12
-> with one environment-only skip, 100% statement and branch coverage, release
+> defensive runtime-cache cleanup, and guarded physical-line range actions.
+> The feature-complete source passed 834 local tests on Linux/Python 3.12 with
+> one environment-only skip, 100% statement and branch coverage, release
 > artifact validation, `twine check`, and a clean wheel smoke test. Its required
-> hosted Windows/Ubuntu evidence is separate from the published `0.1.0a2`
-> qualification and must be recorded before the next release.
+> hosted Windows/Ubuntu matrix also passed on 2026-08-23. The final versioned
+> candidate must rerun that matrix and complete TestPyPI qualification before
+> production publication.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -1725,7 +1725,7 @@ has been tested through a documented end-to-end scenario.
 - clean production PyPI installation smoke test completed;
 - recorded ChatGPT end-to-end workflow passed on 2026-08-17.
 
-### `0.1.0a3` (unreleased)
+### `0.1.0a3`
 
 - AI-facing exact-match and unified-diff diagnostics;
 - bounded resolved previews through `plan --diff`;
@@ -1742,6 +1742,9 @@ has been tested through a documented end-to-end scenario.
 - canonical audit `hash_range` plus guarded `replace_range`, `delete_range`,
   and `insert_at_line` actions with strict sequential guards and no fuzzy
   relocation.
+- versioned release candidate prepared on 2026-08-23; final hosted CI,
+  TestPyPI, production publication, and clean index-installation evidence remain
+  separate external gates.
 
 ### `0.1.0b1`
 
@@ -1799,14 +1802,16 @@ PatchShuttle v0.1.0 is ready when all of the following are demonstrated:
 
 ### Current qualification record
 
-As of 2026-08-17, criteria 2 through 16 have local automated coverage. The
-required GitHub-hosted matrix closes criterion 17, the successful TestPyPI
-workflow closes criterion 18, and a clean installation from production PyPI
-closes criterion 1. All listed v0.1.0 acceptance criteria therefore have
-recorded evidence for the current implementation. Version `0.1.0a2` remains an
-alpha pre-release; no stable `0.1.0` release has been published. The separate
-live ChatGPT record demonstrates the bounded workflow described above and does
-not extend to every action or intentional failure and rollback path.
+At `0.1.0a3` release-candidate preparation on 2026-08-23, criteria 2 through 16
+had local automated coverage and the feature-complete source had passed the
+required hosted matrix. The published `0.1.0a2` record closes criteria 17, 18,
+and 1 for that immutable version. The final `0.1.0a3` commit must independently
+rerun the hosted matrix for criterion 17, pass TestPyPI installation for
+criterion 18, and pass a clean production installation for criterion 1. Those
+external results are recorded only after they complete. No stable `0.1.0`
+release has been published. The separate live ChatGPT record demonstrates the
+bounded workflow described above and does not extend to every action or
+intentional failure and rollback path.
 
 ## 33. Fixed decisions for implementation
 

@@ -22,7 +22,7 @@ def test_capabilities_are_stable_and_include_safety_boundaries() -> None:
     rendered = render_capabilities()
 
     assert rendered.startswith(
-        "PATCHSHUTTLE_CAPABILITIES\n" "patchshuttle_version: 0.1.0a2\n" "protocol: 1\n"
+        "PATCHSHUTTLE_CAPABILITIES\n" "patchshuttle_version: 0.1.0a3\n" "protocol: 1\n"
     )
     assert "job_kinds: [audit, patch, verify]\n" in rendered
     assert "change_actions: [create_directory, create_file, replace_exact" in rendered

@@ -6,26 +6,27 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. The published `0.1.0a2` pre-release
-> implements the complete local v0.1 workflow. It executes bounded read-only
+> PatchShuttle is alpha software. Version `0.1.0a3` implements the complete
+> local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
 > scoped isort then Black, repeat checks, and compare SHA-256 workspace
 > inventories. Completed patches support guarded manual rollback. Timestamped
 > fixed-section logs, exact job archives, registry idempotency, project
 > snapshots, AI handoffs, declarative Python constructors, release checks, and
-> Trusted Publishing workflows are implemented. Local qualification, the
-> required GitHub-hosted Windows/Ubuntu matrix, TestPyPI qualification,
-> production PyPI publication, and a post-release smoke installation are
-> complete. A documented ChatGPT end-to-end workflow passed on 2026-08-17.
+> Trusted Publishing workflows are implemented. Every versioned release must
+> pass its own local qualification, GitHub-hosted Windows/Ubuntu matrix,
+> TestPyPI installation, production publication, and post-release smoke gates.
+> The immutable `0.1.0a2` evidence and documented ChatGPT end-to-end workflow
+> are retained in [docs/RELEASE.md](docs/RELEASE.md).
 
 > [!NOTE]
-> The current unreleased source adds AI-facing planner diagnostics, formatter
-> preflight, optional HTML linting, failure-attempt logs, explicit workspace
-> routing, workspace-independent self-documentation, per-file formatter policy,
-> a Django-aware import check, defensive runtime-cache cleanup, and guarded
-> physical-line range actions with a canonical read-only range hash. These
-> additions are not part of the published `0.1.0a2` package yet.
+> Compared with `0.1.0a2`, version `0.1.0a3` adds AI-facing planner diagnostics,
+> formatter preflight, optional HTML linting, failure-attempt logs, explicit
+> workspace routing, workspace-independent self-documentation, per-file
+> formatter policy, a Django-aware import check, defensive runtime-cache
+> cleanup, and guarded physical-line range actions with a canonical read-only
+> range hash.
 
 ## Design goals
 
@@ -40,12 +41,12 @@ code can execute arbitrary behavior with the current user's permissions.
 
 ## Install
 
-Install the exact published alpha release from PyPI:
+After publication, install the exact alpha release from PyPI:
 
 ```bash
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install "patchshuttle==0.1.0a2"
+python -m pip install "patchshuttle==0.1.0a3"
 ```
 
 For development from a local checkout:
@@ -54,8 +55,14 @@ For development from a local checkout:
 python -m pip install -e ".[dev]"
 ```
 
-To enable opt-in HTML template linting in the current source tree, install the
-`html` extra as well:
+To enable opt-in HTML template linting in an installed release, install the
+`html` extra:
+
+```bash
+python -m pip install "patchshuttle[html]==0.1.0a3"
+```
+
+For a local development checkout, install both development and HTML extras:
 
 ```bash
 python -m pip install -e ".[dev,html]"
@@ -108,9 +115,8 @@ patchshuttle version
 patchshuttle --help
 ```
 
-In the current unreleased source, an AI or user can inspect the installed
-contract without initializing a workspace or reading protected generated
-files:
+In version `0.1.0a3`, an AI or user can inspect the installed contract without
+initializing a workspace or reading protected generated files:
 
 ```bash
 patchshuttle capabilities
@@ -149,8 +155,8 @@ patchshuttle --workspace path/to/project handoff
 ```
 
 Without this option, PatchShuttle searches the current directory and its
-parents. If no workspace is found, the unreleased CLI performs a bounded scan
-of direct child directories and may print candidate names and a rerun hint. It
+parents. If no workspace is found, the CLI performs a bounded scan of direct
+child directories and may print candidate names and a rerun hint. It
 does not select or execute against a candidate automatically.
 `JOB_FILE` arguments remain relative to the process current directory; the
 workspace option changes workspace selection, not normal path-argument rules.
@@ -216,7 +222,7 @@ The current `validate` command reads the selected workspace configuration,
 applies its `max_job_bytes` limit, safely loads the YAML, validates the typed
 model, and compares the job project ID. It does not plan or execute actions or
 modify project source files. A successful validation does not create an
-operational artifact. In the unreleased source, a validation failure after the
+operational artifact. In version `0.1.0a3`, a validation failure after the
 workspace is resolved writes a timestamped `VALIDATION_FAILED` log containing
 the stable error, summary, and AI handoff. It does not archive invalid source
 as a job or update the registry. A workspace-discovery failure has no resolved
@@ -326,7 +332,7 @@ Planning performs the complete implemented read-only preflight:
 
 Policy blocks exit with code `4`, planning failures with code `5`, and missing
 check profiles or dependencies with code `9`. A successful plan exits with
-code `0`. In the unreleased source, a failed planning attempt after workspace
+code `0`. In version `0.1.0a3`, a failed planning attempt after workspace
 resolution writes a timestamped `PLAN_FAILED` log. The terminal result prints
 its path, and `patchshuttle logs --last` returns that failure log until a newer
 recorded artifact is written.
@@ -645,7 +651,7 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a2-py3-none-any.whl --version 0.1.0a2
+python tools/wheel_smoke.py dist/patchshuttle-0.1.0a3-py3-none-any.whl --version 0.1.0a3
 ```
 
 The `0.1.0a2` alpha release passed the required Ubuntu and Windows
@@ -653,7 +659,8 @@ compatibility matrix, TestPyPI qualification, production PyPI Trusted
 Publishing, and a clean post-release installation. The exact release, workflow
 links, artifact hashes, and ChatGPT end-to-end evidence are recorded in
 [docs/RELEASE.md](docs/RELEASE.md). Follow that guide in order for future
-releases and rerun CI after every release-candidate change.
+releases, including `0.1.0a3`, and append separate immutable evidence after
+every gate completes. Rerun CI after every release-candidate change.
 
 ## Manual workflow
 

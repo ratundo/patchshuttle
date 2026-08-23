@@ -1,9 +1,9 @@
 # PatchShuttle release guide
 
-This guide records the published `0.1.0a2` alpha release and describes the
-GitHub Actions and PyPI Trusted Publishing procedure for future releases. Do
-not publish a stable `0.1.0` release until every acceptance criterion in
-`SPEC_V0_1.md` has passed and the stable release is approved.
+This guide records the immutable published `0.1.0a2` evidence and the staged
+qualification procedure for `0.1.0a3` and later releases. Do not publish a
+stable `0.1.0` release until every acceptance criterion in `SPEC_V0_1.md` has
+passed and the stable release is approved.
 
 ## 0. Recorded `0.1.0a2` qualification
 
@@ -48,9 +48,33 @@ formatting, repeated-check, and independent verification workflow. It does not
 cover every supported action, intentional failure or rollback path, AI model,
 or project.
 
+## 0.1. `0.1.0a3` release-candidate record
+
+The `0.1.0a3` source version and changelog were prepared on 2026-08-23 after
+the feature-complete commit `d588abf` passed the
+[required GitHub-hosted matrix and distribution smoke job](https://github.com/ratundo/patchshuttle/actions/runs/32650889118).
+The candidate adds planner diagnostics and previews, formatter preflight and
+local exclusions, optional HTML linting, failure-attempt logs, explicit
+workspace routing, installed self-documentation, Django-aware imports,
+defensive runtime-cache cleanup, and guarded physical-line operations.
+
+A bounded `AUDIT-A3-RELEASE-001` run on Windows 11 with CPython 3.14.2 inspected
+version metadata, release documentation, workflows, and distribution smoke
+scripts. All 23 read-only actions completed with a passing workspace comparison
+and zero project changes. Its normalized job hash was
+`da1c4be9ad9846cc35ffb20f0f9a71fbb5502721459c8d791f7e93740c9ea856`.
+
+This is candidate evidence only. The final versioned commit requires a fresh CI
+matrix, TestPyPI publication and clean installation, a matching `v0.1.0a3`
+GitHub pre-release, production Trusted Publishing, byte hashes, and a clean
+production index installation. Append those immutable results only after each
+gate completes.
+
 ## 1. Local release gate
 
-From the repository root, use Python 3.12 and run:
+From a clean repository root, use Python 3.12 and start with an empty `dist/`
+directory so immutable artifacts from an older version cannot be mixed with
+the candidate. Then run:
 
 ```bash
 python -m pip install -e ".[dev,html]"
@@ -67,8 +91,14 @@ python tools/wheel_smoke.py dist/patchshuttle-<VERSION>-py3-none-any.whl --versi
 
 `release_checks.py` requires exactly one wheel and one source archive for the
 source version and writes `dist/SHA256SUMS`. Replace `<VERSION>` with the exact
-source version under qualification. Do not reuse the immutable published
-`0.1.0a2` version for a future upload.
+source version under qualification. For this candidate it is `0.1.0a3`. Do not
+reuse an immutable published version for a future upload.
+
+During a source-version transition, metadata in an already-installed editable
+environment may still report the previous version until the package is
+reinstalled. Source-tree tests validate the imported source version. The build,
+`release_checks.py`, and clean-wheel smoke test are the authoritative metadata
+alignment gates for the new distributions.
 
 For the next alpha, the local and hosted suites must also retain explicit
 coverage for formatter baseline-versus-planned classification, per-tool local
@@ -104,7 +134,7 @@ Windows/Python 3.12 and 3.14. A local Linux result does not replace these jobs.
 3. In GitHub Actions, manually run **Publish to TestPyPI** from the verified
    commit.
 4. Require its `build`, `publish`, and `verify` jobs to pass. The final job
-   installs exactly `patchshuttle==0.1.0a2` from TestPyPI and runs a clean
+   installs exactly `patchshuttle==<VERSION>` from TestPyPI and runs a clean
    smoke test.
 
 No API token or repository secret is needed. Only the isolated `publish` job
@@ -119,11 +149,11 @@ After TestPyPI succeeds:
 2. In the production PyPI publishing settings, add a pending trusted publisher
    with workflow `release.yml` and environment `pypi`; the other project and
    repository values are the same as above.
-3. Confirm that the source version is still `0.1.0a2`, the intended tag is
-   `v0.1.0a2`, and the changelog is final.
+3. Confirm that the source version is still `<VERSION>`, the intended tag is
+   `v<VERSION>`, and the changelog is final.
 4. Create that Git tag from the exact commit whose CI and TestPyPI workflows
    passed.
-5. Create and publish a GitHub pre-release for `v0.1.0a2`.
+5. Create and publish a GitHub pre-release for `v<VERSION>`.
 
 Publishing the GitHub release starts **Release to PyPI**. Its build job checks
 that the tag matches the source version, reruns the test and package gates,
@@ -140,7 +170,7 @@ Confirm all workflow jobs are green, then run in a new local environment:
 
 ```bash
 python -m venv release-check
-release-check/bin/python -m pip install --pre patchshuttle==0.1.0a2
+release-check/bin/python -m pip install --pre patchshuttle==<VERSION>
 release-check/bin/patchshuttle version
 ```
 

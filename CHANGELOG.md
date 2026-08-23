@@ -5,6 +5,12 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased
 
+## 0.1.0a3 - 2026-08-23
+
+Second alpha release, focused on AI-facing planning diagnostics, legacy-project
+formatter compatibility, optional HTML linting, operational self-documentation,
+and strict guarded physical-line operations.
+
 ### Added
 
 - `patchshuttle plan JOB.psh.yaml --diff` prints a bounded unified preview of
@@ -54,6 +60,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ### Fixed
 
+- Source-version transitions no longer compare a new checkout version with
+  stale editable-install metadata before rebuilding. Distribution metadata
+  remains validated from the wheel and source archive by the release gates.
 - Python checks now redirect bytecode caches to an isolated temporary
   directory, so `compileall`, imports, and test collection do not leave
   `__pycache__` entries that can obstruct rollback of a newly created package.
