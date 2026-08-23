@@ -15,6 +15,7 @@ AUDIT_ACTIONS = (
     "find_files",
     "file_info",
     "hash",
+    "hash_range",
     "git_status",
     "environment",
 )
@@ -25,6 +26,9 @@ CHANGE_ACTIONS = (
     "insert_before",
     "insert_after",
     "delete_exact",
+    "replace_range",
+    "delete_range",
+    "insert_at_line",
     "apply_diff",
 )
 CHECKS = (
@@ -84,6 +88,32 @@ summary: Delete an exact text occurrence count from one existing text file.
 fields: path and text (required); expected_count=1 (optional)
 planning: The text must occur exactly expected_count times in the simulated file.
 diagnostics: A mismatch reports exact match lines or bounded nearby snippets.""",
+    "replace_range": """\
+category: change_action
+summary: Replace one 1-based inclusive physical-line range after strict guard validation.
+fields: path, start_line, end_line, and new_content (required); expected_content and/or expected_sha256 (at least one required)
+planning: Line numbers position the range; guards prove the current simulated content before any change.
+canonicalization: Range content uses LF newlines and SHA-256 over canonical UTF-8 bytes.
+safety: Both guards must pass when both are supplied; no fuzzy matching, relocation, partial apply, or automatic line shift.""",
+    "delete_range": """\
+category: change_action
+summary: Delete one 1-based inclusive physical-line range after strict guard validation.
+fields: path, start_line, and end_line (required); expected_content and/or expected_sha256 (at least one required)
+planning: Guards are evaluated against the sequential simulated file state.
+safety: A bounds or guard mismatch stops planning without changing the workspace.""",
+    "insert_at_line": """\
+category: change_action
+summary: Insert content before or after one guarded physical line.
+fields: path, line, position=before|after, and content (required); expected_content and/or expected_sha256 (at least one required)
+planning: The referenced line is guarded before insertion and positions are 1-based.
+safety: Line numbers are never accepted as proof of identity.""",
+    "hash_range": """\
+category: audit_action
+summary: Calculate the canonical SHA-256 guard for one 1-based inclusive physical-line range.
+fields: path, start_line, and end_line (required); algorithm=sha256 (optional)
+canonicalization: Newlines are LF and canonical text is encoded as UTF-8 before hashing.
+output: Includes source encoding, requested bounds, total lines, final-newline state, digest, and canonical byte size.
+safety: Read-only, bounded, and subject to workspace audit policy.""",
     "apply_diff": """\
 category: change_action
 summary: Apply a text-only unified diff in memory without a shell or patch executable.

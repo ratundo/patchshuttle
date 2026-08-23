@@ -17,6 +17,14 @@ from pathlib import Path, PurePosixPath
 from typing import cast
 
 from patchshuttle._diff import apply_file_diff, parse_unified_diff
+from patchshuttle._line_ranges import (
+    CanonicalLineRange,
+    LineRangeBoundsError,
+)
+from patchshuttle._line_ranges import normalize_newlines as _normalize_newlines
+from patchshuttle._line_ranges import (
+    select_line_range,
+)
 from patchshuttle.errors import PlanningError, PlanningErrorCode
 from patchshuttle.formatter_policy import (
     FORMATTER_ORDER,
@@ -319,6 +327,7 @@ class _Planner:
     def _plan_audit_action(self, action: Action, *, item_id: str) -> None:
         parameters = action.parameters
         paths: tuple[PurePosixPath, ...] = ()
+        detail: str | None = None
         if action.name in {"tree", "find_files"}:
             target = self._audit_target(
                 cast(str, parameters.path),
@@ -349,15 +358,29 @@ class _Planner:
                 raw = self._read_existing_file(target, item_id=item_id)
                 self._decode_existing(raw, item_id=item_id, path=target.relative)
             paths = (target.relative,)
-        elif action.name in {"file_info", "hash"}:
-            expected = PathKind.FILE if action.name == "hash" else None
+        elif action.name in {"file_info", "hash", "hash_range"}:
+            expected = PathKind.FILE if action.name in {"hash", "hash_range"} else None
             target = self._audit_target(
                 parameters.path,
                 item_id=item_id,
                 expected=expected,
             )
-            if action.name == "hash":
-                self._read_existing_file(target, item_id=item_id)
+            if action.name in {"hash", "hash_range"}:
+                raw = self._read_existing_file(target, item_id=item_id)
+                if action.name == "hash_range":
+                    state = self._decode_existing(
+                        raw,
+                        item_id=item_id,
+                        path=target.relative,
+                    )
+                    selected = self._select_range(
+                        state.text,
+                        start_line=parameters.start_line,
+                        end_line=parameters.end_line,
+                        item_id=item_id,
+                        path=target.relative,
+                    )
+                    detail = self._range_detail(selected)
             paths = (target.relative,)
 
         self.action_plans.append(
@@ -366,6 +389,7 @@ class _Planner:
                 name=action.name,
                 disposition=ActionDisposition.INSPECT,
                 paths=paths,
+                detail=detail,
             )
         )
 
@@ -407,6 +431,8 @@ class _Planner:
             "delete_exact",
         }:
             self._plan_exact_edit(action, item_id=item_id)
+        elif action.name in {"replace_range", "delete_range", "insert_at_line"}:
+            self._plan_range_edit(action, item_id=item_id)
         else:
             self._plan_apply_diff(action, item_id=item_id)
 
@@ -564,6 +590,159 @@ class _Planner:
                 paths=(path,),
             )
         )
+
+    def _plan_range_edit(self, action: Action, *, item_id: str) -> None:
+        parameters = action.parameters
+        path = self.policy.normalize(parameters.path)
+        target = self.policy.resolve(path, allow_missing=True)
+        state = self._get_file(path, target, item_id=item_id)
+        start_line = (
+            parameters.line
+            if action.name == "insert_at_line"
+            else parameters.start_line
+        )
+        end_line = (
+            parameters.line if action.name == "insert_at_line" else parameters.end_line
+        )
+        selected = self._select_range(
+            state.text,
+            start_line=start_line,
+            end_line=end_line,
+            item_id=item_id,
+            path=path,
+        )
+        guards = self._validate_range_guards(
+            selected,
+            expected_content=parameters.expected_content,
+            expected_sha256=parameters.expected_sha256,
+            item_id=item_id,
+            path=path,
+        )
+
+        if action.name == "replace_range":
+            replacement = _normalize_newlines(parameters.new_content)
+            updated = (
+                state.text[: selected.start_offset]
+                + replacement
+                + state.text[selected.end_offset :]
+            )
+        elif action.name == "delete_range":
+            updated = (
+                state.text[: selected.start_offset] + state.text[selected.end_offset :]
+            )
+        else:
+            insertion = _normalize_newlines(parameters.content)
+            offset = (
+                selected.start_offset
+                if parameters.position == "before"
+                else selected.end_offset
+            )
+            updated = state.text[:offset] + insertion + state.text[offset:]
+
+        disposition = self._update_state(state, updated, item_id=item_id)
+        detail_parts = [self._range_detail(selected), f"guards: {guards}"]
+        if action.name == "insert_at_line":
+            detail_parts.insert(1, f"position: {parameters.position}")
+        detail_parts.extend(("guard_status: PASS", f"actual_sha256: {selected.sha256}"))
+        self.action_plans.append(
+            PlannedAction(
+                id=item_id,
+                name=action.name,
+                disposition=disposition,
+                paths=(path,),
+                detail="; ".join(detail_parts),
+            )
+        )
+
+    def _select_range(
+        self,
+        text: str,
+        *,
+        start_line: int,
+        end_line: int,
+        item_id: str,
+        path: PurePosixPath,
+    ) -> CanonicalLineRange:
+        try:
+            return select_line_range(
+                text,
+                start_line=start_line,
+                end_line=end_line,
+            )
+        except LineRangeBoundsError as error:
+            valid = (
+                f"1-{error.total_lines}" if error.total_lines else "none (empty file)"
+            )
+            raise self._error(
+                PlanningErrorCode.LINE_RANGE_OUT_OF_BOUNDS,
+                f"requested line range {start_line}-{end_line} is outside the current file",
+                item_id,
+                path=path.as_posix(),
+                details=(
+                    f"  requested_lines: {start_line}-{end_line}",
+                    f"  total_lines: {error.total_lines}",
+                    f"  valid_lines: {valid}",
+                ),
+            ) from error
+
+    def _validate_range_guards(
+        self,
+        selected: CanonicalLineRange,
+        *,
+        expected_content: str | None,
+        expected_sha256: str | None,
+        item_id: str,
+        path: PurePosixPath,
+    ) -> str:
+        content_match = (
+            expected_content is None
+            or _normalize_newlines(expected_content) == selected.content
+        )
+        hash_match = expected_sha256 is None or expected_sha256 == selected.sha256
+        guards = "+".join(
+            name
+            for name, value in (
+                ("expected_content", expected_content),
+                ("expected_sha256", expected_sha256),
+            )
+            if value is not None
+        )
+        if content_match and hash_match:
+            return guards
+
+        details = [
+            f"  lines: {selected.start_line}-{selected.end_line}",
+            f"  guards: {guards}",
+            f"  actual_sha256: {selected.sha256}",
+        ]
+        if expected_sha256 is not None:
+            details.extend(
+                (
+                    f"  expected_sha256: {expected_sha256}",
+                    f"  sha256_match: {str(hash_match).lower()}",
+                )
+            )
+        if expected_content is not None:
+            expected = _normalize_newlines(expected_content)
+            details.extend(
+                (
+                    f"  content_match: {str(content_match).lower()}",
+                    f"  first_mismatch_line: {_first_range_mismatch_line(expected, selected)}",
+                    f"  expected_preview: {_preview(expected)}",
+                    f"  actual_preview: {_preview(selected.content)}",
+                )
+            )
+        raise self._error(
+            PlanningErrorCode.LINE_RANGE_GUARD_MISMATCH,
+            "line range guard does not match the current simulated file",
+            item_id,
+            path=path.as_posix(),
+            details=tuple(details),
+        )
+
+    @staticmethod
+    def _range_detail(selected: CanonicalLineRange) -> str:
+        return f"lines: {selected.start_line}-{selected.end_line}"
 
     def _plan_apply_diff(self, action: Action, *, item_id: str) -> None:
         parameters = action.parameters
@@ -1258,10 +1437,6 @@ def _decode_change_content(raw: bytes, encoding: str) -> str:
     return raw.decode(encoding)
 
 
-def _normalize_newlines(value: str) -> str:
-    return value.replace("\r\n", "\n").replace("\r", "\n")
-
-
 def _render_newlines(value: str, newline: NewlineStyle) -> str:
     return value.replace("\n", "\r\n") if newline is NewlineStyle.CRLF else value
 
@@ -1382,6 +1557,18 @@ def _line_number(text: str, position: int) -> int:
 def _preview(value: str, maximum: int = 180) -> str:
     rendered = repr(value)
     return rendered if len(rendered) <= maximum else rendered[: maximum - 3] + "..."
+
+
+def _first_range_mismatch_line(
+    expected: str,
+    selected: CanonicalLineRange,
+) -> int:
+    expected_lines = expected.splitlines(keepends=True)
+    actual_lines = selected.content.splitlines(keepends=True)
+    for offset, pair in enumerate(zip(expected_lines, actual_lines)):
+        if pair[0] != pair[1]:
+            return selected.start_line + offset
+    return selected.start_line + min(len(expected_lines), len(actual_lines))
 
 
 def _is_adjacent(

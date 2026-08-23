@@ -34,6 +34,11 @@ uses semantic versioning, including Python-compatible pre-release versions.
 - `django_import_check` imports bounded dotted module names through
   `manage.py shell -c`, allowing project checks that require initialized
   Django settings and the app registry without accepting arbitrary code.
+- Read-only `hash_range` and guarded `replace_range`, `delete_range`, and
+  `insert_at_line` operations add 1-based inclusive physical-line addressing
+  without weakening identity checks. Content and SHA-256 guards use canonical
+  LF/UTF-8 bytes, evaluate against sequential simulated content, and fail
+  closed without fuzzy relocation or partial application.
 
 ### Changed
 

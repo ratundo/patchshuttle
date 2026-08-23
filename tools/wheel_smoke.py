@@ -26,7 +26,7 @@ from patchshuttle import (
     plan_job,
     rollback_job,
 )
-from patchshuttle.actions import create_file, hash
+from patchshuttle.actions import create_file, hash, hash_range, replace_range
 from patchshuttle.checks import compileall, django_import_check
 
 root = Path.cwd() / "project"
@@ -100,6 +100,39 @@ audit = Job(
 audited = execute_plan(plan_job(audit, workspace))
 assert audited.audit_results[0].status == "COMPLETED"
 
+range_audit = Job(
+    protocol=1,
+    project_id=workspace.project_id,
+    id="SMOKE-RANGE-AUDIT",
+    kind="audit",
+    actions=(hash_range("hello.py", 1, 1),),
+)
+range_audited = execute_plan(plan_job(range_audit, workspace))
+range_digest = next(
+    line.removeprefix("sha256: ")
+    for line in range_audited.audit_results[0].output.splitlines()
+    if line.startswith("sha256: ")
+)
+range_patch = Job(
+    protocol=1,
+    project_id=workspace.project_id,
+    id="SMOKE-RANGE-PATCH",
+    kind="patch",
+    actions=(
+        replace_range(
+            "hello.py",
+            1,
+            1,
+            "VALUE = 3\n",
+            expected_sha256=range_digest,
+        ),
+    ),
+    checks=(compileall(("hello.py",)),),
+)
+range_patched = execute_plan(plan_job(range_patch, workspace), approved=True)
+assert range_patched.status.value == "COMPLETED"
+assert (root / "hello.py").read_text("utf-8") == "VALUE = 3\n"
+
 verify = Job(
     protocol=1,
     project_id=workspace.project_id,
@@ -112,6 +145,9 @@ assert verified.status.value == "COMPLETED"
 assert create_snapshot(workspace).path.is_file()
 assert create_handoff(workspace).path.is_file()
 
+range_rolled_back = rollback_job(workspace, range_patch.id, approved=True)
+assert range_rolled_back.job_id == range_patch.id
+assert (root / "hello.py").read_text("utf-8") == "VALUE = 1\n"
 rolled_back = rollback_job(workspace, patch.id, approved=True)
 assert rolled_back.job_id == patch.id
 assert not (root / "hello.py").exists()
@@ -195,16 +231,23 @@ def smoke_wheel(wheel: Path, expected_version: str) -> None:
         if reported != f"PatchShuttle {expected_version}":
             raise RuntimeError(f"unexpected CLI version output: {reported!r}")
         capabilities = _run([str(cli), "capabilities"], cwd=root).stdout
-        if "arbitrary_shell_action: unavailable" not in capabilities:
+        if not all(
+            expected in capabilities
+            for expected in (
+                "arbitrary_shell_action: unavailable",
+                "hash_range",
+                "replace_range",
+            )
+        ):
             raise RuntimeError("installed capability output is incomplete")
         schema = json.loads(_run([str(cli), "schema"], cwd=root).stdout)
         if schema.get("title") != "Job":
             raise RuntimeError("installed schema output is invalid")
         explanation = _run(
-            [str(cli), "explain", "replace_exact"],
+            [str(cli), "explain", "replace_range"],
             cwd=root,
         ).stdout
-        if "topic: replace_exact" not in explanation:
+        if "topic: replace_range" not in explanation:
             raise RuntimeError("installed explanation output is invalid")
         program = "EXPECTED_VERSION = " + repr(expected_version) + "\n" + _WORKFLOW
         _run([str(python), "-c", textwrap.dedent(program)], cwd=root)

@@ -18,9 +18,9 @@
 > diff previews, Python formatter preflight, opt-in changed-HTML linting,
 > early failure logs, explicit workspace routing, and installed-contract
 > self-documentation, per-file formatter policy, Django-aware import checks,
-> and defensive runtime-cache cleanup; those changes are not part of the
-> published `0.1.0a2` evidence.
-> The current unreleased source passed 793 local tests on Linux/Python 3.12
+> defensive runtime-cache cleanup, and guarded physical-line range actions;
+> those changes are not part of the published `0.1.0a2` evidence.
+> The current unreleased source passed 834 local tests on Linux/Python 3.12
 > with one environment-only skip, 100% statement and branch coverage, release
 > artifact validation, `twine check`, and a clean wheel smoke test. Its required
 > hosted Windows/Ubuntu evidence is separate from the published `0.1.0a2`
@@ -608,12 +608,28 @@ Fields:
 - `path`: required relative file path;
 - `algorithm`: only `sha256` in v0.1.
 
-### 12.7 `git_status`
+### 12.7 `hash_range`
+
+Fields:
+
+- `path`: required relative text-file path;
+- `start_line`: required positive 1-based physical line;
+- `end_line`: required inclusive line not less than `start_line`;
+- `algorithm`: only `sha256`.
+
+The planner validates bounds before execution. Audit output records the source
+encoding, requested bounds, current total physical lines, whether the selected
+range includes its final newline, the canonical byte size, and the digest.
+Canonical range text uses LF newlines and is encoded as UTF-8 for hashing. This
+digest can be copied into a guarded line change without requiring the AI to
+calculate it.
+
+### 12.8 `git_status`
 
 The action accepts no fields. If Git or `.git` is unavailable, the action
 returns `NOT_AVAILABLE` without failing the audit job.
 
-### 12.8 `environment`
+### 12.9 `environment`
 
 The action accepts no fields. Output is limited to non-secret metadata:
 
@@ -732,7 +748,63 @@ Behavior:
 - on a first run, missing text is an error rather than an idempotent success;
 - rerun idempotency is handled by the project registry at job level.
 
-### 13.8 `apply_diff`
+### 13.8 Shared guarded line-range contract
+
+Line operations supplement rather than replace exact-content operations.
+
+- physical line numbers are positive, 1-based, and ranges are inclusive;
+- line numbers position a target but never prove its identity;
+- `expected_content`, `expected_sha256`, or both are required;
+- when both guards are provided, both must pass;
+- content guards are compared after CRLF/CR normalization to LF;
+- digest guards are lowercase-normalized 64-digit SHA-256 values calculated
+  over canonical LF text encoded as UTF-8;
+- guards are evaluated against the planner's sequential simulated content
+  after all preceding actions;
+- stale bounds fail with `LINE_RANGE_OUT_OF_BOUNDS`;
+- stale content or digests fail with `LINE_RANGE_GUARD_MISMATCH`;
+- mismatch diagnostics include bounds, current total lines or digest, guard
+  types, first mismatching absolute line, and bounded previews where relevant;
+- there is no fuzzy matching, automatic relocation, automatic line shift,
+  partial application, or fall-through to a different range.
+
+### 13.9 `replace_range`
+
+Fields:
+
+- `path`: required existing text file;
+- `start_line`: required first guarded line;
+- `end_line`: required inclusive final guarded line;
+- `new_content`: required replacement text, which may be empty;
+- `expected_content`: optional non-empty canonical content guard;
+- `expected_sha256`: optional canonical digest guard.
+
+The selected physical lines, including any existing final LF in the range, are
+replaced with `new_content`. Existing file encoding, BOM, and supported newline
+style are preserved.
+
+### 13.10 `delete_range`
+
+Fields are the same guarded range and path fields as `replace_range`, without
+`new_content`. The exact guarded physical lines are removed. An empty file has
+no addressable physical line and therefore cannot satisfy a range.
+
+### 13.11 `insert_at_line`
+
+Fields:
+
+- `path`: required existing text file;
+- `line`: required guarded physical line;
+- `position`: required `before` or `after`;
+- `content`: required non-empty inserted text;
+- `expected_content`: optional non-empty canonical content guard;
+- `expected_sha256`: optional canonical digest guard.
+
+The single referenced line is guarded before insertion. `before` inserts at
+its start offset; `after` inserts after all characters belonging to that
+physical line, including its LF when present.
+
+### 13.12 `apply_diff`
 
 Fields:
 
@@ -1313,8 +1385,8 @@ failure_code: CHECK_FAILED
 failed_item: check_001
 rollback: SUCCESS
 available_job_kinds: [audit, patch, verify]
-available_audit_actions: [tree, read, search, find_files, file_info, hash, git_status, environment]
-available_change_actions: [create_directory, create_file, replace_exact, insert_before, insert_after, delete_exact, apply_diff]
+available_audit_actions: [tree, read, search, find_files, file_info, hash, hash_range, git_status, environment]
+available_change_actions: [create_directory, create_file, replace_exact, insert_before, insert_after, delete_exact, replace_range, delete_range, insert_at_line, apply_diff]
 available_checks: [compileall, pytest, unittest, django_check, django_migrations_check, django_test, django_import_check, import_check, profile]
 next_expected_response: corrected_patch_or_audit
 === END_PATCHSHUTTLE_AI_HANDOFF ===
@@ -1667,6 +1739,9 @@ has been tested through a documented end-to-end scenario.
 - Django-aware controlled module imports through `manage.py shell -c`;
 - defensive runtime `.pyc` cleanup that preserves pre-existing and foreign
   cache entries.
+- canonical audit `hash_range` plus guarded `replace_range`, `delete_range`,
+  and `insert_at_line` actions with strict sequential guards and no fuzzy
+  relocation.
 
 ### `0.1.0b1`
 

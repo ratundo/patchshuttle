@@ -45,6 +45,8 @@ When asked for a PatchShuttle job:
 - `find_files` - bounded glob search.
 - `file_info` - file metadata.
 - `hash` - SHA-256 file hash.
+- `hash_range` - canonical SHA-256 for a 1-based inclusive physical-line
+  range.
 - `git_status` - Git status when Git is available.
 - `environment` - bounded development-environment summary.
 
@@ -56,7 +58,43 @@ When asked for a PatchShuttle job:
 - `insert_before` - insert text before an exact anchor.
 - `insert_after` - insert text after an exact anchor.
 - `delete_exact` - delete exact text with an expected count.
+- `replace_range` - replace a guarded 1-based inclusive line range.
+- `delete_range` - delete a guarded 1-based inclusive line range.
+- `insert_at_line` - insert before or after one guarded physical line.
 - `apply_diff` - apply a unified diff to existing text files.
+
+Line-range operations are an optional complement to exact-content actions.
+Use them only when a current audit established the exact physical line or
+range. Line numbers position the operation but never prove identity. Every
+change requires `expected_content`, `expected_sha256`, or both; when both are
+present, both must match the planner's sequential simulated file state. There
+is no fuzzy matching, relocation, partial application, or automatic line
+shift. Ranges are 1-based and inclusive. Guard content is canonicalized to LF;
+the digest is SHA-256 over canonical LF text encoded as UTF-8.
+
+Prefer the read-only `hash_range` action when a digest guard is more compact
+than returning a large source block. Copy its reported digest exactly:
+
+```yaml
+actions:
+  - hash_range:
+      path: src/example.py
+      start_line: 120
+      end_line: 135
+```
+
+A guarded replacement then uses the current range and digest:
+
+```yaml
+actions:
+  - replace_range:
+      path: src/example.py
+      start_line: 120
+      end_line: 135
+      expected_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      new_content: |
+        replacement
+```
 
 ## Checks
 
@@ -146,7 +184,9 @@ path is printed in the terminal and available through
 `patchshuttle logs --last`. Use reported exact line numbers, nearby similarity
 matches, or
 unified-diff hunk diagnostics to correct the next job instead of guessing file
-content. After every recorded attempt, ask the user for that `.log` file or a
+content. `LINE_RANGE_OUT_OF_BOUNDS` and `LINE_RANGE_GUARD_MISMATCH` require a
+fresh audit; never shift or weaken the guard by guessing. After every recorded
+attempt, ask the user for that `.log` file or a
 fresh `patchshuttle handoff` file and use its final
 `PATCHSHUTTLE_AI_HANDOFF` block before preparing the next job. Never state that
 a job was applied merely because YAML or a successful plan was created.

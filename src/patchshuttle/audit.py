@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path, PurePosixPath
 
+from patchshuttle._line_ranges import select_line_range
 from patchshuttle._process import ProcessCommand, ProcessStatus, run_process
 from patchshuttle._version import __version__
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, PolicyError
@@ -25,6 +26,7 @@ from patchshuttle.inventory import (
 from patchshuttle.models import JobKind
 from patchshuttle.planner import Plan, plan_job
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
+from patchshuttle.preflight import detect_python_encoding
 
 _UTF32_LE_BOM = b"\xff\xfe\x00\x00"
 _UTF32_BE_BOM = b"\x00\x00\xfe\xff"
@@ -155,6 +157,8 @@ def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
         return AuditStatus.COMPLETED, _file_info(plan, parameters)
     if name == "hash":
         return AuditStatus.COMPLETED, _hash(plan, parameters)
+    if name == "hash_range":
+        return AuditStatus.COMPLETED, _hash_range(plan, parameters)
     if name == "git_status":
         return _git_status(plan)
     if name == "environment":
@@ -192,7 +196,7 @@ def _read(plan: Plan, parameters) -> str:
     policy = Policy(plan.workspace)
     target = policy.resolve(parameters.path)
     raw = _read_regular_file(plan, target)
-    encoding, text = _decode_text(raw)
+    encoding, text = _decode_text(raw, path=target.relative)
     lines = text.splitlines()
     start = parameters.start_line
     end = parameters.end_line or len(lines)
@@ -220,7 +224,10 @@ def _search(plan: Plan, parameters) -> str:
     skipped_binary = 0
     for path, target in files:
         try:
-            _, text = _decode_text(_read_regular_file(plan, target))
+            _, text = _decode_text(
+                _read_regular_file(plan, target),
+                path=path,
+            )
         except (UnicodeError, ValueError):
             skipped_binary += 1
             continue
@@ -275,7 +282,7 @@ def _file_info(plan: Plan, parameters) -> str:
     if target.kind is PathKind.FILE:
         raw = _read_regular_file(plan, target)
         try:
-            encoding, text = _decode_text(raw)
+            encoding, text = _decode_text(raw, path=target.relative)
             newline = _newline_style(text)
         except (UnicodeError, ValueError):
             encoding, newline = "binary_or_unsupported", "not_applicable"
@@ -292,6 +299,33 @@ def _hash(plan: Plan, parameters) -> str:
             "algorithm: sha256",
             f"sha256: {hashlib.sha256(raw).hexdigest()}",
             f"size_bytes: {len(raw)}",
+        )
+    )
+
+
+def _hash_range(plan: Plan, parameters) -> str:
+    target = Policy(plan.workspace).resolve(parameters.path)
+    raw = _read_regular_file(plan, target)
+    source_encoding, text = _decode_text(raw, path=target.relative)
+    selected = select_line_range(
+        text,
+        start_line=parameters.start_line,
+        end_line=parameters.end_line,
+    )
+    canonical = selected.content.encode("utf-8")
+    return "\n".join(
+        (
+            f"path: {target.relative.as_posix()}",
+            f"start_line: {selected.start_line}",
+            f"end_line: {selected.end_line}",
+            f"total_lines: {selected.total_lines}",
+            f"source_encoding: {source_encoding}",
+            "canonical_encoding: utf-8",
+            "canonical_newline: lf",
+            "final_newline_included: " + str(selected.ends_with_newline).lower(),
+            "algorithm: sha256",
+            f"sha256: {selected.sha256}",
+            f"canonical_size_bytes: {len(canonical)}",
         )
     )
 
@@ -448,7 +482,11 @@ def _read_regular_file(plan: Plan, target: WorkspacePath) -> bytes:
     return raw
 
 
-def _decode_text(raw: bytes) -> tuple[str, str]:
+def _decode_text(
+    raw: bytes,
+    *,
+    path: PurePosixPath | None = None,
+) -> tuple[str, str]:
     bom = b""
     if raw.startswith(_UTF32_LE_BOM):
         bom, codec, encoding = _UTF32_LE_BOM, "utf-32-le", "utf-32-le"
@@ -461,9 +499,13 @@ def _decode_text(raw: bytes) -> tuple[str, str]:
     elif raw.startswith(_UTF16_BE_BOM):
         bom, codec, encoding = _UTF16_BE_BOM, "utf-16-be", "utf-16-be"
     else:
-        codec = encoding = "utf-8"
         if b"\0" in raw:
             raise ValueError("binary file")
+        if path is not None and path.suffix.casefold() == ".py":
+            encoding = detect_python_encoding(raw, path=path)
+            codec = encoding
+        else:
+            codec = encoding = "utf-8"
     text = raw[len(bom) :].decode(codec)
     if any(_is_binary_control(character) for character in text):
         raise ValueError("binary file")

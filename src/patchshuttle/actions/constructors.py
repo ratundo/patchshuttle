@@ -83,6 +83,25 @@ def hash(path: str, *, algorithm: str = "sha256") -> Action:
     return Action({"hash": {"path": path, "algorithm": algorithm}})
 
 
+def hash_range(
+    path: str,
+    start_line: int,
+    end_line: int,
+    *,
+    algorithm: str = "sha256",
+) -> Action:
+    return Action(
+        {
+            "hash_range": {
+                "path": path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "algorithm": algorithm,
+            }
+        }
+    )
+
+
 def git_status() -> Action:
     return Action({"git_status": {}})
 
@@ -188,8 +207,105 @@ def delete_exact(
     )
 
 
+def replace_range(
+    path: str,
+    start_line: int,
+    end_line: int,
+    new_content: str,
+    *,
+    expected_content: str | None = None,
+    expected_sha256: str | None = None,
+) -> Action:
+    parameters = _guarded_range_parameters(
+        path,
+        start_line=start_line,
+        end_line=end_line,
+        expected_content=expected_content,
+        expected_sha256=expected_sha256,
+    )
+    parameters["new_content"] = new_content
+    return Action({"replace_range": parameters})
+
+
+def delete_range(
+    path: str,
+    start_line: int,
+    end_line: int,
+    *,
+    expected_content: str | None = None,
+    expected_sha256: str | None = None,
+) -> Action:
+    return Action(
+        {
+            "delete_range": _guarded_range_parameters(
+                path,
+                start_line=start_line,
+                end_line=end_line,
+                expected_content=expected_content,
+                expected_sha256=expected_sha256,
+            )
+        }
+    )
+
+
+def insert_at_line(
+    path: str,
+    line: int,
+    position: str,
+    content: str,
+    *,
+    expected_content: str | None = None,
+    expected_sha256: str | None = None,
+) -> Action:
+    parameters: dict[str, object] = {
+        "path": path,
+        "line": line,
+        "position": position,
+        "content": content,
+    }
+    _add_guards(
+        parameters,
+        expected_content=expected_content,
+        expected_sha256=expected_sha256,
+    )
+    return Action({"insert_at_line": parameters})
+
+
 def apply_diff(diff: str, *, strip: int = 1) -> Action:
     return Action({"apply_diff": {"diff": diff, "strip": strip}})
+
+
+def _guarded_range_parameters(
+    path: str,
+    *,
+    start_line: int,
+    end_line: int,
+    expected_content: str | None,
+    expected_sha256: str | None,
+) -> dict[str, object]:
+    parameters: dict[str, object] = {
+        "path": path,
+        "start_line": start_line,
+        "end_line": end_line,
+    }
+    _add_guards(
+        parameters,
+        expected_content=expected_content,
+        expected_sha256=expected_sha256,
+    )
+    return parameters
+
+
+def _add_guards(
+    parameters: dict[str, object],
+    *,
+    expected_content: str | None,
+    expected_sha256: str | None,
+) -> None:
+    if expected_content is not None:
+        parameters["expected_content"] = expected_content
+    if expected_sha256 is not None:
+        parameters["expected_sha256"] = expected_sha256
 
 
 __all__ = [
@@ -197,15 +313,19 @@ __all__ = [
     "create_directory",
     "create_file",
     "delete_exact",
+    "delete_range",
     "environment",
     "file_info",
     "find_files",
     "git_status",
     "hash",
+    "hash_range",
     "insert_after",
+    "insert_at_line",
     "insert_before",
     "read",
     "replace_exact",
+    "replace_range",
     "search",
     "tree",
 ]

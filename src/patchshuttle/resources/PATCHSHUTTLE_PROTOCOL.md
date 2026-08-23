@@ -32,6 +32,8 @@ name.
 - `find_files`: `path`, `glob`, `max_results`.
 - `file_info`: `path`.
 - `hash`: `path`, optional `algorithm: sha256`.
+- `hash_range`: `path`, positive `start_line`, inclusive `end_line`, optional
+  `algorithm: sha256`.
 - `git_status`: empty mapping.
 - `environment`: empty mapping.
 
@@ -43,7 +45,21 @@ name.
 - `insert_before`: `path`, `anchor`, `content`, `expected_count`.
 - `insert_after`: `path`, `anchor`, `content`, `expected_count`.
 - `delete_exact`: `path`, `text`, `expected_count`.
+- `replace_range`: `path`, positive `start_line`, inclusive `end_line`,
+  `new_content`, plus `expected_content` and/or `expected_sha256`.
+- `delete_range`: `path`, positive `start_line`, inclusive `end_line`, plus
+  `expected_content` and/or `expected_sha256`.
+- `insert_at_line`: `path`, positive `line`, `position: before|after`,
+  non-empty `content`, plus `expected_content` and/or `expected_sha256`.
 - `apply_diff`: `diff`, optional `strip` from `0` through `2`.
+
+Line numbers are 1-based and are only positions, never proof of identity.
+Every line-changing action requires at least one guard. If both guards are
+provided, both must pass against the planner's sequential simulated content.
+Ranges and guard content use canonical LF newlines; SHA-256 guards hash those
+canonical characters encoded as UTF-8. A bounds or guard mismatch stops the
+plan. PatchShuttle does not fuzz, relocate, partially apply, or automatically
+shift a range.
 
 ## Checks
 
@@ -90,7 +106,9 @@ Use `patchshuttle validate patches/inbox/JOB.psh.yaml`, then review
 not mean the job was applied. Add `--diff` to display a bounded unified preview
 of the final resolved bytes. Exact-count failures include exact line numbers or
 nearby similarity-ranked snippets; unified-diff failures include hunk counts
-and first context mismatches. `patchshuttle run JOB.psh.yaml` accepts every job
+and first context mismatches. Line-range failures report the requested bounds,
+current total lines, guard types, current digest, and bounded content previews
+when applicable. `patchshuttle run JOB.psh.yaml` accepts every job
 kind. `patchshuttle audit JOB.psh.yaml` requires an audit job and does not
 prompt. `patchshuttle verify JOB.psh.yaml` requires a verify job and, like a
 patch, uses a deny-by-default confirmation unless `--yes` is supplied. The

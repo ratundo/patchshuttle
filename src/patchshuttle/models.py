@@ -24,6 +24,10 @@ PositiveInteger: TypeAlias = Annotated[int, Field(strict=True, ge=1)]
 Depth: TypeAlias = Annotated[int, Field(strict=True, ge=1, le=10)]
 DiffStrip: TypeAlias = Annotated[int, Field(strict=True, ge=0, le=2)]
 QuietLevel: TypeAlias = Annotated[int, Field(strict=True, ge=0, le=2)]
+Sha256Hex: TypeAlias = Annotated[
+    str,
+    Field(strict=True, pattern=r"^[0-9A-Fa-f]{64}$"),
+]
 NonEmptyStringTuple: TypeAlias = Annotated[
     tuple[NonEmptyString, ...], Field(min_length=1)
 ]
@@ -81,6 +85,22 @@ class HashParameters(_FrozenModel):
     algorithm: Literal["sha256"] = "sha256"
 
 
+class _InclusiveLineRangeParameters(_FrozenModel):
+    path: NonEmptyString
+    start_line: PositiveInteger
+    end_line: PositiveInteger
+
+    @model_validator(mode="after")
+    def validate_line_range(self) -> _InclusiveLineRangeParameters:
+        if self.end_line < self.start_line:
+            raise ValueError("end_line must be greater than or equal to start_line")
+        return self
+
+
+class HashRangeParameters(_InclusiveLineRangeParameters):
+    algorithm: Literal["sha256"] = "sha256"
+
+
 class GitStatusParameters(_FrozenModel):
     pass
 
@@ -125,6 +145,50 @@ class DeleteExactParameters(_FrozenModel):
     path: NonEmptyString
     text: NonEmptyString
     expected_count: PositiveInteger = 1
+
+
+class _GuardedLineRangeParameters(_InclusiveLineRangeParameters):
+    expected_content: NonEmptyString | None = None
+    expected_sha256: Sha256Hex | None = None
+
+    @field_validator("expected_sha256")
+    @classmethod
+    def normalize_expected_sha256(cls, value: str | None) -> str | None:
+        return value.casefold() if value is not None else None
+
+    @model_validator(mode="after")
+    def require_guard(self) -> _GuardedLineRangeParameters:
+        if self.expected_content is None and self.expected_sha256 is None:
+            raise ValueError("at least one line-range guard is required")
+        return self
+
+
+class ReplaceRangeParameters(_GuardedLineRangeParameters):
+    new_content: StrictString
+
+
+class DeleteRangeParameters(_GuardedLineRangeParameters):
+    pass
+
+
+class InsertAtLineParameters(_FrozenModel):
+    path: NonEmptyString
+    line: PositiveInteger
+    position: Literal["before", "after"]
+    content: NonEmptyString
+    expected_content: NonEmptyString | None = None
+    expected_sha256: Sha256Hex | None = None
+
+    @field_validator("expected_sha256")
+    @classmethod
+    def normalize_expected_sha256(cls, value: str | None) -> str | None:
+        return value.casefold() if value is not None else None
+
+    @model_validator(mode="after")
+    def require_guard(self) -> InsertAtLineParameters:
+        if self.expected_content is None and self.expected_sha256 is None:
+            raise ValueError("at least one line guard is required")
+        return self
 
 
 class ApplyDiffParameters(_FrozenModel):
@@ -211,6 +275,10 @@ class HashAction(_FrozenModel):
     hash: HashParameters
 
 
+class HashRangeAction(_FrozenModel):
+    hash_range: HashRangeParameters
+
+
 class GitStatusAction(_FrozenModel):
     git_status: GitStatusParameters
 
@@ -243,6 +311,18 @@ class DeleteExactAction(_FrozenModel):
     delete_exact: DeleteExactParameters
 
 
+class ReplaceRangeAction(_FrozenModel):
+    replace_range: ReplaceRangeParameters
+
+
+class DeleteRangeAction(_FrozenModel):
+    delete_range: DeleteRangeParameters
+
+
+class InsertAtLineAction(_FrozenModel):
+    insert_at_line: InsertAtLineParameters
+
+
 class ApplyDiffAction(_FrozenModel):
     apply_diff: ApplyDiffParameters
 
@@ -254,6 +334,7 @@ ActionValue: TypeAlias = (
     | FindFilesAction
     | FileInfoAction
     | HashAction
+    | HashRangeAction
     | GitStatusAction
     | EnvironmentAction
     | CreateDirectoryAction
@@ -262,6 +343,9 @@ ActionValue: TypeAlias = (
     | InsertBeforeAction
     | InsertAfterAction
     | DeleteExactAction
+    | ReplaceRangeAction
+    | DeleteRangeAction
+    | InsertAtLineAction
     | ApplyDiffAction
 )
 ActionName: TypeAlias = Literal[
@@ -271,6 +355,7 @@ ActionName: TypeAlias = Literal[
     "find_files",
     "file_info",
     "hash",
+    "hash_range",
     "git_status",
     "environment",
     "create_directory",
@@ -279,6 +364,9 @@ ActionName: TypeAlias = Literal[
     "insert_before",
     "insert_after",
     "delete_exact",
+    "replace_range",
+    "delete_range",
+    "insert_at_line",
     "apply_diff",
 ]
 
@@ -289,6 +377,7 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "find_files": FindFilesAction,
     "file_info": FileInfoAction,
     "hash": HashAction,
+    "hash_range": HashRangeAction,
     "git_status": GitStatusAction,
     "environment": EnvironmentAction,
     "create_directory": CreateDirectoryAction,
@@ -297,6 +386,9 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "insert_before": InsertBeforeAction,
     "insert_after": InsertAfterAction,
     "delete_exact": DeleteExactAction,
+    "replace_range": ReplaceRangeAction,
+    "delete_range": DeleteRangeAction,
+    "insert_at_line": InsertAtLineAction,
     "apply_diff": ApplyDiffAction,
 }
 
@@ -308,6 +400,7 @@ AUDIT_ACTION_NAMES = frozenset(
         "find_files",
         "file_info",
         "hash",
+        "hash_range",
         "git_status",
         "environment",
     }
@@ -320,6 +413,9 @@ CHANGE_ACTION_NAMES = frozenset(
         "insert_before",
         "insert_after",
         "delete_exact",
+        "replace_range",
+        "delete_range",
+        "insert_at_line",
         "apply_diff",
     }
 )

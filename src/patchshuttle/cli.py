@@ -1004,11 +1004,13 @@ def _render_plan(plan: Plan, *, show_diff: bool = False) -> str:
         f"kind: {plan.job.kind.value}",
         f"planned_actions: {len(plan.actions)}",
     ]
-    lines.extend(
-        f"  - {action.id} {action.name} {action.disposition.value}: "
-        f"{_path_summary(action.paths)}"
-        for action in plan.actions
-    )
+    for action in plan.actions:
+        lines.append(
+            f"  - {action.id} {action.name} {action.disposition.value}: "
+            f"{_path_summary(action.paths)}"
+        )
+        if action.detail is not None:
+            lines.extend(f"    {item}" for item in action.detail.split("; "))
     _append_path_list(lines, "files_to_create", plan.files_to_create)
     _append_path_list(lines, "files_to_modify", plan.files_to_modify)
     _append_path_list(lines, "directories_to_create", plan.directories_to_create)

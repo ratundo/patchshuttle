@@ -85,6 +85,7 @@ def _validate_wheel(wheel: Path, version: str) -> None:
         if metadata["Version"] != version:
             raise ValueError("wheel version does not match the source version")
         required = {
+            "patchshuttle/_line_ranges.py",
             "patchshuttle/formatter_policy.py",
             "patchshuttle/py.typed",
             "patchshuttle/resources/AI_GUIDE.md",

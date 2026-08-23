@@ -66,6 +66,9 @@ _CHANGE_ACTIONS = frozenset(
         "insert_before",
         "insert_after",
         "delete_exact",
+        "replace_range",
+        "delete_range",
+        "insert_at_line",
         "apply_diff",
     }
 )

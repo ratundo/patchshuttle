@@ -17,6 +17,16 @@ AUDIT_ACTIONS: tuple[tuple[dict[str, Any], str], ...] = (
     ({"find_files": {"glob": "*.py"}}, "find_files"),
     ({"file_info": {"path": "pyproject.toml"}}, "file_info"),
     ({"hash": {"path": "README.md"}}, "hash"),
+    (
+        {
+            "hash_range": {
+                "path": "README.md",
+                "start_line": 1,
+                "end_line": 2,
+            }
+        },
+        "hash_range",
+    ),
     ({"git_status": {}}, "git_status"),
     ({"environment": {}}, "environment"),
 )
@@ -70,6 +80,41 @@ CHANGE_ACTIONS: tuple[tuple[dict[str, Any], str], ...] = (
             }
         },
         "delete_exact",
+    ),
+    (
+        {
+            "replace_range": {
+                "path": "src/example.py",
+                "start_line": 2,
+                "end_line": 3,
+                "expected_content": "before\nblock\n",
+                "new_content": "after\nblock\n",
+            }
+        },
+        "replace_range",
+    ),
+    (
+        {
+            "delete_range": {
+                "path": "src/example.py",
+                "start_line": 2,
+                "end_line": 3,
+                "expected_sha256": "a" * 64,
+            }
+        },
+        "delete_range",
+    ),
+    (
+        {
+            "insert_at_line": {
+                "path": "src/example.py",
+                "line": 2,
+                "position": "after",
+                "content": "inserted\n",
+                "expected_content": "anchor\n",
+            }
+        },
+        "insert_at_line",
     ),
     (
         {
@@ -225,6 +270,13 @@ def test_action_and_check_entries_must_be_mappings() -> None:
         {"read": {"path": "README.md", "start_line": 0}},
         {"read": {"path": "README.md", "start_line": 10, "end_line": 9}},
         {
+            "hash_range": {
+                "path": "README.md",
+                "start_line": 2,
+                "end_line": 1,
+            }
+        },
+        {
             "replace_exact": {
                 "path": "file.py",
                 "old": "",
@@ -239,6 +291,64 @@ def test_action_and_check_entries_must_be_mappings() -> None:
             }
         },
         {"delete_exact": {"path": "file.py", "text": ""}},
+        {
+            "replace_range": {
+                "path": "file.py",
+                "start_line": 1,
+                "end_line": 1,
+                "new_content": "new",
+            }
+        },
+        {
+            "delete_range": {
+                "path": "file.py",
+                "start_line": 0,
+                "end_line": 1,
+                "expected_content": "old",
+            }
+        },
+        {
+            "delete_range": {
+                "path": "file.py",
+                "start_line": 2,
+                "end_line": 1,
+                "expected_content": "old",
+            }
+        },
+        {
+            "delete_range": {
+                "path": "file.py",
+                "start_line": 1,
+                "end_line": 1,
+                "expected_sha256": "not-a-sha256",
+            }
+        },
+        {
+            "insert_at_line": {
+                "path": "file.py",
+                "line": 1,
+                "position": "middle",
+                "content": "new",
+                "expected_content": "old",
+            }
+        },
+        {
+            "insert_at_line": {
+                "path": "file.py",
+                "line": 1,
+                "position": "before",
+                "content": "",
+                "expected_content": "old",
+            }
+        },
+        {
+            "insert_at_line": {
+                "path": "file.py",
+                "line": 1,
+                "position": "before",
+                "content": "new",
+            }
+        },
         {"apply_diff": {"diff": "", "strip": 1}},
         {"apply_diff": {"diff": "diff", "strip": 3}},
     ),
@@ -298,6 +408,25 @@ def test_documented_action_defaults_are_stable() -> None:
     apply_diff = Action.model_validate(
         {"apply_diff": {"diff": "--- a/file\n+++ b/file\n"}}
     ).parameters
+    hash_range = Action.model_validate(
+        {
+            "hash_range": {
+                "path": "README.md",
+                "start_line": 1,
+                "end_line": 1,
+            }
+        }
+    ).parameters
+    guarded = Action.model_validate(
+        {
+            "delete_range": {
+                "path": "README.md",
+                "start_line": 1,
+                "end_line": 1,
+                "expected_sha256": "A" * 64,
+            }
+        }
+    ).parameters
 
     assert tree.model_dump() == {
         "path": ".",
@@ -321,6 +450,13 @@ def test_documented_action_defaults_are_stable() -> None:
         "diff": "--- a/file\n+++ b/file\n",
         "strip": 1,
     }
+    assert hash_range.model_dump() == {
+        "path": "README.md",
+        "start_line": 1,
+        "end_line": 1,
+        "algorithm": "sha256",
+    }
+    assert guarded.expected_sha256 == "a" * 64
 
 
 def test_audit_job_requires_only_audit_actions() -> None:

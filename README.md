@@ -23,7 +23,8 @@ records the result for the next iteration.
 > The current unreleased source adds AI-facing planner diagnostics, formatter
 > preflight, optional HTML linting, failure-attempt logs, explicit workspace
 > routing, workspace-independent self-documentation, per-file formatter policy,
-> a Django-aware import check, and defensive runtime-cache cleanup. These
+> a Django-aware import check, defensive runtime-cache cleanup, and guarded
+> physical-line range actions with a canonical read-only range hash. These
 > additions are not part of the published `0.1.0a2` package yet.
 
 ## Design goals
@@ -115,6 +116,8 @@ files:
 patchshuttle capabilities
 patchshuttle schema
 patchshuttle explain replace_exact
+patchshuttle explain replace_range
+patchshuttle explain hash_range
 patchshuttle explain apply_diff
 ```
 
@@ -406,11 +409,11 @@ retained formatted-file states, final check results, audit observations, and a
 workspace comparison where applicable.
 
 An audit executes `tree`, `read`, literal `search`, `find_files`, `file_info`,
-SHA-256 `hash`, `git_status`, and `environment`. Traversal, file reads, match
-counts, and recorded output are bounded by local policy. Protected and ignored
-paths are skipped, source content appears only when explicitly requested by a
-`read` or `search` action, and a before/after inventory verifies that the audit
-did not modify the workspace.
+SHA-256 `hash`, canonical `hash_range`, `git_status`, and `environment`.
+Traversal, file reads, match counts, and recorded output are bounded by local
+policy. Protected and ignored paths are skipped, source content appears only
+when explicitly requested by a `read` or `search` action, and a before/after
+inventory verifies that the audit did not modify the workspace.
 
 A verify job runs its controlled checks once, does not create a backup or run
 formatters, and compares the workspace before and after. A successful check
@@ -419,8 +422,18 @@ project checks can have external effects, PatchShuttle reports but does not
 automatically undo those changes.
 
 A patch plan may contain `create_directory`, `create_file`, `replace_exact`,
-`insert_before`, `insert_after`, `delete_exact`, or `apply_diff` actions and
-applies the final bytes already computed by the planner.
+`insert_before`, `insert_after`, `delete_exact`, `replace_range`,
+`delete_range`, `insert_at_line`, or `apply_diff` actions and applies the final
+bytes already computed by the planner.
+
+The optional line-range actions are strict guarded operations for cases where
+a current audit already established an exact physical range. Lines are 1-based
+and ranges are inclusive. `expected_content`, `expected_sha256`, or both prove
+the target; line numbers only locate it. If both guards are supplied, both must
+pass against the sequential in-memory plan. Canonical guards use LF newlines
+and SHA-256 over UTF-8 bytes. PatchShuttle never fuzzes, relocates, partially
+applies, or automatically shifts a stale range. Use an audit `hash_range` when
+a digest is more compact than repeating a large old block.
 
 For a supported plan, the implemented sequence is:
 

@@ -24,15 +24,19 @@ from patchshuttle.actions import (
     create_directory,
     create_file,
     delete_exact,
+    delete_range,
     environment,
     file_info,
     find_files,
     git_status,
     hash,
+    hash_range,
     insert_after,
+    insert_at_line,
     insert_before,
     read,
     replace_exact,
+    replace_range,
     search,
     tree,
 )
@@ -184,6 +188,16 @@ def test_all_action_constructors_match_yaml_models() -> None:
         ),
         (file_info("a.txt"), {"file_info": {"path": "a.txt"}}),
         (hash("a.txt"), {"hash": {"path": "a.txt"}}),
+        (
+            hash_range("a.txt", 1, 2),
+            {
+                "hash_range": {
+                    "path": "a.txt",
+                    "start_line": 1,
+                    "end_line": 2,
+                }
+            },
+        ),
         (git_status(), {"git_status": {}}),
         (environment(), {"environment": {}}),
         (create_directory("src/pkg"), {"create_directory": {"path": "src/pkg"}}),
@@ -204,6 +218,55 @@ def test_all_action_constructors_match_yaml_models() -> None:
             {"insert_after": {"path": "a.txt", "anchor": "a", "content": "b"}},
         ),
         (delete_exact("a.txt", "a"), {"delete_exact": {"path": "a.txt", "text": "a"}}),
+        (
+            replace_range(
+                "a.txt",
+                1,
+                2,
+                "new\n",
+                expected_content="old\n",
+            ),
+            {
+                "replace_range": {
+                    "path": "a.txt",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "new_content": "new\n",
+                    "expected_content": "old\n",
+                }
+            },
+        ),
+        (
+            delete_range("a.txt", 1, 2, expected_sha256="a" * 64),
+            {
+                "delete_range": {
+                    "path": "a.txt",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "expected_sha256": "a" * 64,
+                }
+            },
+        ),
+        (
+            insert_at_line(
+                "a.txt",
+                1,
+                "before",
+                "new\n",
+                expected_content="old\n",
+                expected_sha256="b" * 64,
+            ),
+            {
+                "insert_at_line": {
+                    "path": "a.txt",
+                    "line": 1,
+                    "position": "before",
+                    "content": "new\n",
+                    "expected_content": "old\n",
+                    "expected_sha256": "b" * 64,
+                }
+            },
+        ),
         (apply_diff(diff), {"apply_diff": {"diff": diff}}),
     )
     for constructed, payload in cases:
@@ -277,6 +340,10 @@ def test_constructors_retain_strict_model_validation() -> None:
         import_check(["json; unsafe"])
     with pytest.raises(ValidationError):
         django_import_check(["app.models; unsafe"])
+    with pytest.raises(ValidationError):
+        replace_range("a.txt", 1, 1, "new")
+    with pytest.raises(ValidationError):
+        insert_at_line("a.txt", 1, "middle", "new", expected_content="old")
     with pytest.raises(ValidationError):
         pytest_check(timeout_seconds=0)
 
