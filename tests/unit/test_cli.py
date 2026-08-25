@@ -141,7 +141,7 @@ def test_init_reports_created_workspace(tmp_path: Path, monkeypatch) -> None:
         "project_id: PSH-8F41C2A73D905E61\n"
         "origin: existing\n"
         "config: patches/patchshuttle.toml\n"
-        "created_entries: 16\n"
+        "created_entries: 17\n"
     )
     assert result.stderr == ""
 
@@ -626,6 +626,114 @@ def test_failed_plan_becomes_the_literal_latest_ai_readable_log(
     assert "failed_path: .env\n" in text
     assert "rollback: NOT_STARTED\n" in text
     assert tuple((tmp_path / "patches/failed").iterdir()) == ()
+
+
+def test_logs_last_supports_compact_text_json_and_exclusive_modes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+    log_path = tmp_path / "patches/logs/log_2026_08_25_13_00_00_TEST.log"
+    log_path.write_text(
+        "=== JOB ===\n"
+        "job_id: PATCH-AI-001\n"
+        "job_hash: abcdef0123456789\n"
+        "kind: patch\n"
+        "title: Compact me\n"
+        "=== SUMMARY ===\n"
+        "result: COMPLETED\n"
+        "failure_stage: NOT_APPLICABLE\n"
+        "failure_code: NOT_APPLICABLE\n"
+        "exit_code: 0\n"
+        "changed_files: []\n"
+        "created_files: []\n"
+        "created_directories: []\n"
+        "checks_passed: 0\n"
+        "formatting_status: NOT_APPLICABLE\n"
+        "rollback_status: NOT_REQUIRED\n"
+        "next_recommended_step: review_log_and_continue\n"
+        "=== PATCHSHUTTLE_AI_HANDOFF ===\n"
+        "protocol: 1\n"
+        "project_id: PSH-8F41C2A73D905E61\n"
+        "job_id: PATCH-AI-001\n"
+        "job_hash: abcdef01\n"
+        "kind: patch\n"
+        "result: COMPLETED\n"
+        "failure_stage: NOT_APPLICABLE\n"
+        "failure_code: NOT_APPLICABLE\n"
+        "failed_item: NOT_APPLICABLE\n"
+        "rollback: NOT_REQUIRED\n"
+        "ai_handoff_version: 2\n"
+        "capabilities_hash: abc123\n"
+        "next_expected_response: next_patch_or_audit\n"
+        "=== END_PATCHSHUTTLE_AI_HANDOFF ===\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    path_only = CliRunner().invoke(main, ["logs", "--last"])
+    text_view = CliRunner().invoke(main, ["logs", "--last", "--ai"])
+    json_view = CliRunner().invoke(main, ["logs", "--last", "--ai-json"])
+    conflict = CliRunner().invoke(
+        main,
+        ["logs", "--last", "--ai", "--ai-json"],
+    )
+
+    assert path_only.exit_code == 0
+    assert path_only.stdout == log_path.as_posix() + "\n"
+    assert text_view.exit_code == 0
+    assert text_view.stdout.startswith("PATCHSHUTTLE_AI_LOG\n")
+    assert "job_id: PATCH-AI-001\n" in text_view.stdout
+    assert json_view.exit_code == 0
+    assert '"result":"COMPLETED"' in json_view.stdout
+    assert '"schema":"patchshuttle.ai_log.v1"' in json_view.stdout
+    assert conflict.exit_code == 2
+    assert "the --ai and --ai-json options are mutually exclusive" in (conflict.stderr)
+
+
+def test_warnings_command_lists_and_explicitly_updates_baseline(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    initialize_project(tmp_path, monkeypatch)
+
+    empty = CliRunner().invoke(main, ["warnings"])
+    added = CliRunner().invoke(
+        main,
+        ["warnings", "--add", "urls.W005"],
+    )
+    listed = CliRunner().invoke(main, ["warnings"])
+    removed = CliRunner().invoke(
+        main,
+        ["warnings", "--remove", "urls.W005"],
+    )
+    invalid = CliRunner().invoke(
+        main,
+        ["warnings", "--add", "urls.E001"],
+    )
+    overlap = CliRunner().invoke(
+        main,
+        [
+            "warnings",
+            "--add",
+            "urls.W005",
+            "--remove",
+            "urls.W005",
+        ],
+    )
+
+    assert empty.exit_code == 0
+    assert "WARNING_BASELINE\n" in empty.stdout
+    assert "django_check_ids: []\n" in empty.stdout
+    assert added.exit_code == 0
+    assert added.stdout.startswith("WARNING_BASELINE_UPDATED\n")
+    assert "  - urls.W005\n" in listed.stdout
+    assert removed.exit_code == 0
+    assert "django_check_ids: []\n" in removed.stdout
+    assert invalid.exit_code == 2
+    assert "applabel.W001" in invalid.stderr
+    assert overlap.exit_code == 2
+    assert "cannot be added and removed together" in overlap.stderr
 
 
 def test_run_planning_failure_records_the_invoked_command(

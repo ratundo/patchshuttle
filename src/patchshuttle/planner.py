@@ -8,7 +8,6 @@ import hashlib
 import json
 import re
 import shutil
-import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from importlib.util import find_spec
@@ -25,6 +24,7 @@ from patchshuttle._line_ranges import normalize_newlines as _normalize_newlines
 from patchshuttle._line_ranges import (
     select_line_range,
 )
+from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle.errors import PlanningError, PlanningErrorCode
 from patchshuttle.formatter_policy import (
     FORMATTER_ORDER,
@@ -132,6 +132,14 @@ class Plan:
     protected_paths_passed: bool
     backup_destination: PurePosixPath | None
     auto_rollback: bool
+
+    @property
+    def project_python(self) -> Path | None:
+        """Return the effective interpreter for project checks, when used."""
+
+        from patchshuttle.project_python import project_python_for_job
+
+        return project_python_for_job(self.workspace, self.job)
 
     @property
     def files_to_create(self) -> tuple[PurePosixPath, ...]:
@@ -335,12 +343,12 @@ class _Planner:
                 expected=PathKind.DIRECTORY,
             )
             paths = (target.relative,)
-        elif action.name == "read":
+        elif action.name in {"read", "read_symbol"}:
             requested_max = parameters.max_bytes
             if requested_max is not None and requested_max > self.max_file_bytes:
                 raise self._error(
                     PlanningErrorCode.FILE_SIZE_LIMIT_EXCEEDED,
-                    f"read max_bytes exceeds the configured {self.max_file_bytes}-byte limit",
+                    f"{action.name} max_bytes exceeds the configured {self.max_file_bytes}-byte limit",
                     item_id,
                     path=parameters.path,
                 )
@@ -349,10 +357,20 @@ class _Planner:
                 item_id=item_id,
                 expected=PathKind.FILE,
             )
+            if (
+                action.name == "read_symbol"
+                and target.relative.suffix.casefold() != ".py"
+            ):
+                raise self._error(
+                    PlanningErrorCode.TARGET_TYPE_INVALID,
+                    "read_symbol requires a .py file",
+                    item_id,
+                    path=target.relative.as_posix(),
+                )
             raw = self._read_existing_file(target, item_id=item_id)
             self._decode_existing(raw, item_id=item_id, path=target.relative)
             paths = (target.relative,)
-        elif action.name == "search":
+        elif action.name in {"search", "search_context"}:
             target = self._audit_target(parameters.path, item_id=item_id)
             if target.kind is PathKind.FILE:
                 raw = self._read_existing_file(target, item_id=item_id)
@@ -424,6 +442,8 @@ class _Planner:
             self._plan_create_directory(action, item_id=item_id)
         elif action.name == "create_file":
             self._plan_create_file(action, item_id=item_id)
+        elif action.name == "replace_symbol":
+            self._plan_symbol_edit(action, item_id=item_id)
         elif action.name in {
             "replace_exact",
             "insert_before",
@@ -504,6 +524,82 @@ class _Planner:
                 name=action.name,
                 disposition=disposition,
                 paths=(path,),
+            )
+        )
+
+    def _plan_symbol_edit(self, action: Action, *, item_id: str) -> None:
+        parameters = action.parameters
+        path = self.policy.normalize(parameters.path)
+        target = self.policy.resolve(path, allow_missing=True)
+        state = self._get_file(path, target, item_id=item_id)
+        try:
+            source = find_symbol_source(
+                state.text,
+                parameters.symbol,
+                filename=path.as_posix(),
+            )
+        except SyntaxError as exc:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SOURCE_INVALID,
+                "Python source could not be parsed for replace_symbol",
+                item_id,
+                path=path.as_posix(),
+            ) from exc
+        except ValueError as exc:  # pragma: no cover - Python 3.10+ AST contract
+            raise self._error(
+                PlanningErrorCode.PYTHON_SOURCE_INVALID,
+                str(exc),
+                item_id,
+                path=path.as_posix(),
+            ) from exc
+        if source is None:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SYMBOL_RESOLUTION_FAILED,
+                f"Python symbol {parameters.symbol!r} did not resolve exactly once",
+                item_id,
+                path=path.as_posix(),
+            )
+
+        selected = source.selected
+        replacement = _normalize_newlines(parameters.new_content)
+        if replacement == selected.content:
+            updated = state.text
+            guard_status = "ALREADY_APPLIED"
+        elif parameters.expected_sha256 != selected.sha256:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
+                "Python symbol guard does not match the current simulated file",
+                item_id,
+                path=path.as_posix(),
+                details=(
+                    f"  symbol: {parameters.symbol}",
+                    f"  kind: {source.kind}",
+                    f"  lines: {selected.start_line}-{selected.end_line}",
+                    f"  expected_sha256: {parameters.expected_sha256}",
+                    f"  actual_sha256: {selected.sha256}",
+                ),
+            )
+        else:
+            updated = (
+                state.text[: selected.start_offset]
+                + replacement
+                + state.text[selected.end_offset :]
+            )
+            guard_status = "PASS"
+
+        disposition = self._update_state(state, updated, item_id=item_id)
+        self.action_plans.append(
+            PlannedAction(
+                id=item_id,
+                name=action.name,
+                disposition=disposition,
+                paths=(path,),
+                detail=(
+                    f"symbol: {parameters.symbol}; kind: {source.kind}; "
+                    f"lines: {selected.start_line}-{selected.end_line}; "
+                    f"guard_status: {guard_status}; "
+                    f"actual_sha256: {selected.sha256}"
+                ),
             )
         )
 
@@ -782,18 +878,57 @@ class _Planner:
     def _plan_check(self, check: Check, *, item_id: str) -> None:
         parameters = check.parameters
         paths: tuple[PurePosixPath, ...] = ()
+        if check.name in {
+            "compileall",
+            "pytest",
+            "unittest",
+            "django_check",
+            "django_migrations_check",
+            "django_test",
+            "django_import_check",
+            "import_check",
+        }:
+            self._require_project_python(item_id=item_id)
         if check.name == "compileall":
             paths = tuple(
                 self._check_target(path, item_id=item_id).relative
                 for path in parameters.paths
             )
+        elif check.name == "ruff":
+            selected: list[PurePosixPath] = []
+            seen: set[PurePosixPath] = set()
+            for action in self.action_plans:
+                if (
+                    action.name == "create_directory"
+                    or action.disposition is ActionDisposition.NO_CHANGE
+                ):
+                    continue
+                for path in action.paths:
+                    if path.suffix != ".py" or path in seen:
+                        continue
+                    target = self._check_target(
+                        path.as_posix(),
+                        item_id=item_id,
+                        expected=PathKind.FILE,
+                    )
+                    seen.add(target.relative)
+                    selected.append(target.relative)
+            if not selected:
+                raise self._error(
+                    PlanningErrorCode.CHECK_ARGUMENT_INVALID,
+                    "ruff requires at least one changed Python file",
+                    item_id,
+                )
+            paths = tuple(selected)
+            self._require_module("ruff", item_id=item_id)
         elif check.name == "pytest":
             self._validate_pytest_args(parameters.args, item_id=item_id)
             paths = tuple(
                 self._check_target(path, item_id=item_id).relative
                 for path in parameters.paths
             )
-            self._require_module("pytest", item_id=item_id)
+            if self.workspace.config.execution.python_executable is None:
+                self._require_module("pytest", item_id=item_id)
         elif check.name == "unittest":
             target = self._check_target(
                 parameters.discover,
@@ -826,7 +961,8 @@ class _Planner:
                         item_id,
                         path=invalid_labels[0],
                     )
-            self._require_module("django", item_id=item_id)
+            if self.workspace.config.execution.python_executable is None:
+                self._require_module("django", item_id=item_id)
         elif check.name == "profile":
             if parameters.name not in self.workspace.config.checks.profiles:
                 raise self._error(
@@ -835,6 +971,9 @@ class _Planner:
                     item_id,
                     path=parameters.name,
                 )
+            profile = self.workspace.config.checks.profiles[parameters.name]
+            if "{python}" in profile.argv:
+                self._require_project_python(item_id=item_id)
             self._require_profile_command(parameters.name, item_id=item_id)
 
         self.check_plans.append(PlannedCheck(id=item_id, name=check.name, paths=paths))
@@ -892,6 +1031,22 @@ class _Planner:
                     path=argument,
                 )
 
+    def _require_project_python(self, *, item_id: str) -> None:
+        from patchshuttle.project_python import (
+            ProjectPythonError,
+            resolve_project_python,
+        )
+
+        try:
+            resolve_project_python(self.workspace)
+        except ProjectPythonError as exc:
+            raise self._error(
+                PlanningErrorCode.DEPENDENCY_NOT_AVAILABLE,
+                str(exc),
+                item_id,
+                path=exc.path,
+            ) from exc
+
     def _require_module(self, name: str, *, item_id: str) -> None:
         try:
             available = find_spec(name) is not None
@@ -909,8 +1064,9 @@ class _Planner:
         profile = self.workspace.config.checks.profiles[name]
         command = profile.argv[0]
         if command == "{python}":
-            available = Path(sys.executable).is_file()
-        elif Path(command).is_absolute() or "/" in command or "\\" in command:
+            self._require_project_python(item_id=item_id)
+            return
+        if Path(command).is_absolute() or "/" in command or "\\" in command:
             candidate = Path(command)
             if not candidate.is_absolute():
                 candidate = self.workspace.root / candidate

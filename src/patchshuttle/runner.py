@@ -63,6 +63,7 @@ _CHANGE_ACTIONS = frozenset(
     {
         *_CREATE_ACTIONS,
         "replace_exact",
+        "replace_symbol",
         "insert_before",
         "insert_after",
         "delete_exact",

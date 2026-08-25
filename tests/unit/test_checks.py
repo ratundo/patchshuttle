@@ -66,6 +66,44 @@ def verify_plan(workspace: Workspace, checks: list[dict]) -> Plan:
     return plan_job(job, workspace)
 
 
+def test_prepare_ruff_builds_fixed_read_only_command(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (workspace.root / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    job = Job(
+        protocol=1,
+        project_id=PROJECT_ID,
+        id="PATCH-RUFF-001",
+        kind="patch",
+        actions=[
+            {
+                "replace_exact": {
+                    "path": "module.py",
+                    "old": "VALUE = 1",
+                    "new": "VALUE = 2",
+                }
+            }
+        ],
+        checks=[{"ruff": {}}],
+    )
+    monkeypatch.setattr(planner_module, "find_spec", lambda name: object())
+
+    prepared = prepare_checks(plan_job(job, workspace))[0]
+
+    assert prepared.argv == (
+        sys.executable,
+        "-m",
+        "ruff",
+        "check",
+        "--select",
+        "F",
+        "--no-fix",
+        "--",
+        "module.py",
+    )
+
+
 def test_prepare_checks_builds_fixed_commands_for_every_profile(
     workspace: Workspace,
     monkeypatch: pytest.MonkeyPatch,
@@ -274,6 +312,48 @@ def test_django_import_check_uses_manage_py_environment(
     assert result.status is CheckStatus.PASSED
     assert result.return_code == 0
     assert not (workspace.root / "__pycache__").exists()
+
+
+def test_django_check_warning_baseline_is_advisory(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from patchshuttle.runner import acquire_workspace_lock
+    from patchshuttle.warning_baseline import update_warning_baseline
+
+    (workspace.root / "manage.py").write_text(
+        "import sys\n"
+        "sys.stderr.write(\n"
+        '    "System check identified some issues:\\n\\n"\n'
+        '    "WARNINGS:\\n"\n'
+        '    "?: (urls.W005) Known.\\n"\n'
+        '    "app.Model: (models.W001) New.\\n\\n"\n'
+        '    "System check identified 2 issues (0 silenced).\\n"\n'
+        ")\n",
+        encoding="utf-8",
+        newline="",
+    )
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        planner_module,
+        "find_spec",
+        lambda name: object() if name == "django" else real_find_spec(name),
+    )
+    with acquire_workspace_lock(workspace):
+        update_warning_baseline(workspace, add=("urls.W005",))
+    plan = verify_plan(
+        workspace,
+        [{"django_check": {"manage_py": "manage.py"}}],
+    )
+
+    result = run_checks(plan).results[0]
+
+    assert result.success is True
+    assert result.warning_analysis == "COMPLETE"
+    assert result.known_warnings == 1
+    assert result.new_warnings == 1
+    assert result.new_warning_details == ("app.Model: (models.W001) New.",)
+    assert "urls.W005" in result.stderr
 
 
 def test_run_checks_stops_after_first_nonzero_exit_and_captures_streams(

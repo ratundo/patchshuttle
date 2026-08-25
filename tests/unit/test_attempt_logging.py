@@ -62,6 +62,12 @@ def test_validation_failure_log_handles_an_unparsed_job_and_redacts(
     assert "failed_path: $\n" in text
     assert "=== PATCHSHUTTLE_AI_HANDOFF ===\nprotocol: 1\n" in text
     assert text.endswith("=== END_PATCHSHUTTLE_AI_HANDOFF ===\n")
+    assert "ai_handoff_version: 2\n" in text
+    assert "capabilities_hash:" in text
+    assert "available_job_kinds:" not in text
+    assert "available_audit_actions:" not in text
+    assert "available_change_actions:" not in text
+    assert "available_checks:" not in text
 
     handoff = create_handoff(workspace).path.read_text("utf-8")
     assert "=== LATEST_RUN_SUMMARY ===\nresult: VALIDATION_FAILED\n" in handoff

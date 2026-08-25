@@ -21,12 +21,21 @@ from patchshuttle.identifiers import ProjectId
 StrictString: TypeAlias = Annotated[str, Field(strict=True)]
 NonEmptyString: TypeAlias = Annotated[str, Field(strict=True, min_length=1)]
 PositiveInteger: TypeAlias = Annotated[int, Field(strict=True, ge=1)]
+ContextLineCount: TypeAlias = Annotated[int, Field(strict=True, ge=0, le=500)]
 Depth: TypeAlias = Annotated[int, Field(strict=True, ge=1, le=10)]
 DiffStrip: TypeAlias = Annotated[int, Field(strict=True, ge=0, le=2)]
 QuietLevel: TypeAlias = Annotated[int, Field(strict=True, ge=0, le=2)]
 Sha256Hex: TypeAlias = Annotated[
     str,
     Field(strict=True, pattern=r"^[0-9A-Fa-f]{64}$"),
+]
+PythonSymbol: TypeAlias = Annotated[
+    str,
+    Field(
+        strict=True,
+        min_length=1,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$",
+    ),
 ]
 NonEmptyStringTuple: TypeAlias = Annotated[
     tuple[NonEmptyString, ...], Field(min_length=1)
@@ -68,6 +77,17 @@ class SearchParameters(_FrozenModel):
     glob: StrictString | None = None
     case_sensitive: bool = Field(default=True, strict=True)
     max_results: PositiveInteger = 200
+
+
+class SearchContextParameters(SearchParameters):
+    before: ContextLineCount = 3
+    after: ContextLineCount = 3
+
+
+class ReadSymbolParameters(_FrozenModel):
+    path: NonEmptyString
+    symbol: PythonSymbol
+    max_bytes: PositiveInteger | None = None
 
 
 class FindFilesParameters(_FrozenModel):
@@ -125,6 +145,18 @@ class ReplaceExactParameters(_FrozenModel):
     old: NonEmptyString
     new: StrictString
     expected_count: PositiveInteger = 1
+
+
+class ReplaceSymbolParameters(_FrozenModel):
+    path: NonEmptyString
+    symbol: PythonSymbol
+    expected_sha256: Sha256Hex
+    new_content: StrictString
+
+    @field_validator("expected_sha256")
+    @classmethod
+    def normalize_expected_sha256(cls, value: str) -> str:
+        return value.casefold()
 
 
 class InsertBeforeParameters(_FrozenModel):
@@ -201,6 +233,10 @@ class CompileallParameters(_FrozenModel):
     quiet: QuietLevel = 1
 
 
+class RuffParameters(_FrozenModel):
+    pass
+
+
 class PytestParameters(_FrozenModel):
     paths: tuple[NonEmptyString, ...] = ()
     args: tuple[StrictString, ...] = ()
@@ -263,6 +299,14 @@ class SearchAction(_FrozenModel):
     search: SearchParameters
 
 
+class SearchContextAction(_FrozenModel):
+    search_context: SearchContextParameters
+
+
+class ReadSymbolAction(_FrozenModel):
+    read_symbol: ReadSymbolParameters
+
+
 class FindFilesAction(_FrozenModel):
     find_files: FindFilesParameters
 
@@ -299,6 +343,10 @@ class ReplaceExactAction(_FrozenModel):
     replace_exact: ReplaceExactParameters
 
 
+class ReplaceSymbolAction(_FrozenModel):
+    replace_symbol: ReplaceSymbolParameters
+
+
 class InsertBeforeAction(_FrozenModel):
     insert_before: InsertBeforeParameters
 
@@ -331,6 +379,8 @@ ActionValue: TypeAlias = (
     TreeAction
     | ReadAction
     | SearchAction
+    | SearchContextAction
+    | ReadSymbolAction
     | FindFilesAction
     | FileInfoAction
     | HashAction
@@ -340,6 +390,7 @@ ActionValue: TypeAlias = (
     | CreateDirectoryAction
     | CreateFileAction
     | ReplaceExactAction
+    | ReplaceSymbolAction
     | InsertBeforeAction
     | InsertAfterAction
     | DeleteExactAction
@@ -352,6 +403,8 @@ ActionName: TypeAlias = Literal[
     "tree",
     "read",
     "search",
+    "search_context",
+    "read_symbol",
     "find_files",
     "file_info",
     "hash",
@@ -361,6 +414,7 @@ ActionName: TypeAlias = Literal[
     "create_directory",
     "create_file",
     "replace_exact",
+    "replace_symbol",
     "insert_before",
     "insert_after",
     "delete_exact",
@@ -374,6 +428,8 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "tree": TreeAction,
     "read": ReadAction,
     "search": SearchAction,
+    "search_context": SearchContextAction,
+    "read_symbol": ReadSymbolAction,
     "find_files": FindFilesAction,
     "file_info": FileInfoAction,
     "hash": HashAction,
@@ -383,6 +439,7 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "create_directory": CreateDirectoryAction,
     "create_file": CreateFileAction,
     "replace_exact": ReplaceExactAction,
+    "replace_symbol": ReplaceSymbolAction,
     "insert_before": InsertBeforeAction,
     "insert_after": InsertAfterAction,
     "delete_exact": DeleteExactAction,
@@ -397,6 +454,8 @@ AUDIT_ACTION_NAMES = frozenset(
         "tree",
         "read",
         "search",
+        "search_context",
+        "read_symbol",
         "find_files",
         "file_info",
         "hash",
@@ -410,6 +469,7 @@ CHANGE_ACTION_NAMES = frozenset(
         "create_directory",
         "create_file",
         "replace_exact",
+        "replace_symbol",
         "insert_before",
         "insert_after",
         "delete_exact",
@@ -460,6 +520,10 @@ class CompileallCheck(_FrozenModel):
     compileall: CompileallParameters
 
 
+class RuffCheck(_FrozenModel):
+    ruff: RuffParameters
+
+
 class PytestCheck(_FrozenModel):
     pytest: PytestParameters
 
@@ -494,6 +558,7 @@ class ProfileCheck(_FrozenModel):
 
 CheckValue: TypeAlias = (
     CompileallCheck
+    | RuffCheck
     | PytestCheck
     | UnittestCheck
     | DjangoCheck
@@ -505,6 +570,7 @@ CheckValue: TypeAlias = (
 )
 CheckName: TypeAlias = Literal[
     "compileall",
+    "ruff",
     "pytest",
     "unittest",
     "django_check",
@@ -517,6 +583,7 @@ CheckName: TypeAlias = Literal[
 
 _CHECK_MODELS: dict[str, type[_FrozenModel]] = {
     "compileall": CompileallCheck,
+    "ruff": RuffCheck,
     "pytest": PytestCheck,
     "unittest": UnittestCheck,
     "django_check": DjangoCheck,

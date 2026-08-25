@@ -11,6 +11,10 @@ def compileall(paths: Iterable[str], *, quiet: int = 1) -> Check:
     return Check({"compileall": {"paths": tuple(paths), "quiet": quiet}})
 
 
+def ruff() -> Check:
+    return Check({"ruff": {}})
+
+
 def pytest(
     paths: Iterable[str] = (),
     *,
@@ -72,6 +76,7 @@ def profile(name: str) -> Check:
 
 __all__ = [
     "compileall",
+    "ruff",
     "django_check",
     "django_import_check",
     "django_migrations_check",

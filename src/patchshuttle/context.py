@@ -18,7 +18,7 @@ from patchshuttle.inventory import (
     WorkspaceInventory,
     capture_inventory,
 )
-from patchshuttle.logging import current_run_clock, write_named_log
+from patchshuttle.logging import capabilities_hash, current_run_clock, write_named_log
 from patchshuttle.registry import Registry, load_registry
 from patchshuttle.runner import acquire_workspace_lock
 from patchshuttle.selfdoc import AUDIT_ACTIONS, CHANGE_ACTIONS, CHECKS
@@ -30,6 +30,7 @@ _CHECKS = ", ".join(CHECKS)
 _TREE_LIMIT = 500
 _FILE_LIMIT = 2_000
 _HISTORY_LIMIT = 20
+_HANDOFF_NOISE_SUFFIXES = (".tar.gz",)
 _TRUNCATION = "\n[TRUNCATED BY PATCHSHUTTLE]\n"
 
 
@@ -178,7 +179,7 @@ def _handoff_text(
     latest_summary: str,
     latest_handoff: str,
 ) -> str:
-    tree_lines, tree_truncated = _tree_lines(inventory)
+    tree_lines, tree_truncated = _tree_lines(inventory, handoff=True)
     return "\n".join(
         (
             "=== PATCHSHUTTLE_HANDOFF ===",
@@ -196,10 +197,9 @@ def _handoff_text(
             f"patchshuttle_version: {__version__}",
             "",
             "=== CAPABILITIES ===",
-            "job_kinds: audit, patch, verify",
-            f"audit_actions: {_AUDIT_ACTIONS}",
-            f"change_actions: {_CHANGE_ACTIONS}",
-            f"checks: {_CHECKS}",
+            "ai_handoff_version: 2",
+            f"capabilities_hash: {capabilities_hash()}",
+            "capabilities_command: patchshuttle capabilities",
             "",
             "=== LATEST_RUN_SUMMARY ===",
             latest_summary,
@@ -233,13 +233,27 @@ def _capture(workspace: Workspace) -> WorkspaceInventory:
 
 def _tree_lines(
     inventory: WorkspaceInventory,
+    *,
+    handoff: bool = False,
 ) -> tuple[tuple[str, ...], bool]:
-    selected = inventory.entries[:_TREE_LIMIT]
+    entries = (
+        tuple(entry for entry in inventory.entries if not _is_handoff_tree_noise(entry))
+        if handoff
+        else inventory.entries
+    )
+    selected = entries[:_TREE_LIMIT]
     lines = tuple(
         f"{entry.path.as_posix()}{'/' if entry.kind is InventoryEntryKind.DIRECTORY else ''} [{entry.kind.value.lower()}]"
         for entry in selected
     )
-    return lines or ("[EMPTY PROJECT]",), len(inventory.entries) > len(selected)
+    return lines or ("[EMPTY PROJECT]",), len(entries) > len(selected)
+
+
+def _is_handoff_tree_noise(entry) -> bool:
+    if entry.kind is not InventoryEntryKind.FILE:
+        return False
+    name = entry.path.name.casefold()
+    return ".bak_" in name or name.endswith(_HANDOFF_NOISE_SUFFIXES)
 
 
 def _file_lines(

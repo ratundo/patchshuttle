@@ -318,6 +318,8 @@ ignored_paths = [
 ]
 
 [execution]
+# Optional; relative paths resolve from the workspace root.
+# python_executable = ".venv/Scripts/python.exe"
 confirm = true
 auto_rollback = true
 allow_keep_changes = true
@@ -362,6 +364,7 @@ Configuration values are user policy. A YAML job cannot override:
 - formatting order and exact-path formatter exclusions;
 - HTML lint enablement, profile, ignore rules, or scope;
 - command allowlists;
+- the project Python interpreter selected by local configuration;
 - size or output limits;
 - shell execution policy.
 
@@ -586,7 +589,33 @@ Fields:
 
 v0.1 search is literal. Regular-expression search is not supported.
 
-### 12.4 `find_files`
+### 12.4 `search_context`
+
+Fields:
+
+- `path`, `text`, `glob`, `case_sensitive`, and `max_results`: same
+  semantics as `search`;
+- `before`: optional bounded non-negative physical-line count;
+- `after`: optional bounded non-negative physical-line count.
+
+Output reports each literal match with its file and physical line, plus bounded
+numbered context. It respects the normal path, file-size, result, and output
+limits and does not interpret regular expressions.
+
+### 12.5 `read_symbol`
+
+Fields:
+
+- `path`: required relative Python file;
+- `symbol`: required dotted class, function, method, or nested-symbol name;
+- `max_bytes`: optional positive input-size limit.
+
+The action parses source without importing project code, resolves exactly one
+decorator-aware symbol, and reports its physical line range, canonical LF/UTF-8
+source, and SHA-256. Missing, duplicate, or syntactically invalid targets fail
+the audit action.
+
+### 12.6 `find_files`
 
 Fields:
 
@@ -594,7 +623,7 @@ Fields:
 - `glob`: required glob;
 - `max_results`: integer, default 500.
 
-### 12.5 `file_info`
+### 12.7 `file_info`
 
 Fields:
 
@@ -603,14 +632,14 @@ Fields:
 Output may include type, byte size, encoding result, newline style, executable
 bit where available, and last modification time.
 
-### 12.6 `hash`
+### 12.8 `hash`
 
 Fields:
 
 - `path`: required relative file path;
 - `algorithm`: only `sha256` in v0.1.
 
-### 12.7 `hash_range`
+### 12.9 `hash_range`
 
 Fields:
 
@@ -626,12 +655,12 @@ Canonical range text uses LF newlines and is encoded as UTF-8 for hashing. This
 digest can be copied into a guarded line change without requiring the AI to
 calculate it.
 
-### 12.8 `git_status`
+### 12.10 `git_status`
 
 The action accepts no fields. If Git or `.git` is unavailable, the action
 returns `NOT_AVAILABLE` without failing the audit job.
 
-### 12.9 `environment`
+### 12.11 `environment`
 
 The action accepts no fields. Output is limited to non-secret metadata:
 
@@ -639,7 +668,7 @@ The action accepts no fields. Output is limited to non-secret metadata:
 - Python implementation and version;
 - PatchShuttle version;
 - workspace project ID;
-- availability and versions of Git, pytest, isort, and Black;
+- availability and versions of Git, pytest, isort, Black, and Ruff;
 - current working directory with user-home components redacted where possible.
 
 It must not enumerate environment-variable values.
@@ -710,6 +739,23 @@ Behavior:
 - on a count mismatch, report exact match line numbers or up to three bounded,
   similarity-ranked nearby snippets;
 - verify the replacement count after writing.
+
+### 13.4.1 `replace_symbol`
+
+Fields:
+
+- `path`: required existing Python text file;
+- `symbol`: required dotted class, function, method, or nested-symbol name;
+- `expected_sha256`: required canonical hash returned by `read_symbol`;
+- `new_content`: required complete replacement source.
+
+Planning parses the current sequential simulated file without importing it,
+resolves exactly one decorator-aware symbol, and compares its canonical
+LF/UTF-8 SHA-256 with the guard. Missing, duplicate, syntactically invalid, or
+stale targets fail without fuzzy relocation or automatic line shifting. Exact
+desired symbol content returns `NO_CHANGE`. Execution publishes the planner's
+final file bytes through the normal guarded transaction, backup, check,
+workspace-comparison, and rollback lifecycle.
 
 ### 13.5 `insert_before`
 
@@ -839,6 +885,18 @@ All subprocesses use argument arrays with `shell=False`.
 
 ### 14.1 Built-in profiles
 
+#### `ruff`
+
+```yaml
+checks:
+  - ruff: {}
+```
+
+This patch-only built-in derives an ordered scope exclusively from Python files
+changed by the current non-no-change actions. It runs PatchShuttle's own
+interpreter with `-m ruff check --select F --no-fix --` and the immutable
+planned paths. A job cannot supply paths, rules, fixes, or arbitrary arguments.
+
 #### `compileall`
 
 ```yaml
@@ -848,7 +906,7 @@ checks:
       quiet: 1
 ```
 
-Runs the current interpreter with `-m compileall`.
+Runs the selected project interpreter with `-m compileall`.
 
 #### `pytest`
 
@@ -871,7 +929,7 @@ checks:
       pattern: "test_*.py"
 ```
 
-Runs the current interpreter with `-m unittest`.
+Runs the selected project interpreter with `-m unittest`.
 
 #### `django_check`
 
@@ -881,7 +939,7 @@ checks:
       manage_py: "manage.py"
 ```
 
-Runs the current interpreter with `manage.py check`.
+Runs the selected project interpreter with `manage.py check`.
 
 #### `django_migrations_check`
 
@@ -911,7 +969,7 @@ checks:
       modules: ["clients.models", "email_client.views"]
 ```
 
-Runs the current interpreter with `manage.py shell -c` and internally generated
+Runs the selected project interpreter with `manage.py shell -c` and internally generated
 import code after Django initializes the project environment. Module names must
 match the same conservative dotted-identifier pattern as `import_check`; the
 job cannot provide an arbitrary Python expression. The module list is limited
@@ -951,6 +1009,19 @@ checks:
 ```
 
 The patch file cannot create or modify a local profile.
+
+The workspace owner may optionally set `execution.python_executable` in
+`patches/patchshuttle.toml`. Relative paths resolve from the workspace root and
+absolute paths remain absolute. The resolved path must be an existing regular
+file before a project check can run. When the value is omitted, PatchShuttle
+uses its own `sys.executable` for compatibility. No virtual environment is
+auto-detected, and jobs cannot set or override the value.
+
+The selected interpreter drives `compileall`, `pytest`, `unittest`, all Django
+checks, `import_check`, and the `{python}` placeholder. Ruff, isort, Black,
+HTML lint, quality preflight, audits, and PatchShuttle internals continue to
+use PatchShuttle's own interpreter. Plans and logs record the effective project
+interpreter whenever a requested check uses it.
 
 ### 14.3 Check execution
 
@@ -1208,6 +1279,23 @@ PatchShuttle change actions must reject:
 - a job created for another project ID;
 - an already completed job with conflicting content.
 
+#### 19.1.1 Django warning baseline
+
+PatchShuttle may classify records printed by `django_check` inside
+Django's `WARNINGS:` section against explicit W-class IDs stored in the
+versioned protected file `patches/state/warning-baseline.json`. The file
+is bounded UTF-8 JSON, project-bound, ignored by workspace comparison,
+and updated atomically only by `patchshuttle warnings --add ID` or
+`--remove ID` while holding the workspace run lock. A missing file in an
+older workspace means an empty baseline. New IDs are never accepted
+automatically.
+
+Classification is advisory and must not alter the subprocess status,
+return code, captured output, stop-on-failure behavior, or rollback.
+Full and compact log check records report `warning_analysis`,
+`known_warnings`, `new_warnings`, and `new_warning_details`. Complete text,
+including hints, is retained for new warning records. Truncated stdout or
+stderr yields `INCOMPLETE_TRUNCATED` and no numeric classification.
 ### 19.2 Check-process warning
 
 PatchShuttle must display and log this meaning before executing checks:
@@ -1386,10 +1474,8 @@ failure_stage: INITIAL_CHECKS
 failure_code: CHECK_FAILED
 failed_item: check_001
 rollback: SUCCESS
-available_job_kinds: [audit, patch, verify]
-available_audit_actions: [tree, read, search, find_files, file_info, hash, hash_range, git_status, environment]
-available_change_actions: [create_directory, create_file, replace_exact, insert_before, insert_after, delete_exact, replace_range, delete_range, insert_at_line, apply_diff]
-available_checks: [compileall, pytest, unittest, django_check, django_migrations_check, django_test, django_import_check, import_check, profile]
+ai_handoff_version: 2
+capabilities_hash: 0123456789ab
 next_expected_response: corrected_patch_or_audit
 === END_PATCHSHUTTLE_AI_HANDOFF ===
 ```
@@ -1447,7 +1533,7 @@ patchshuttle status [JOB_ID]
 patchshuttle rollback JOB_ID [--yes]
 patchshuttle snapshot
 patchshuttle handoff
-patchshuttle logs --last
+patchshuttle logs --last [--ai | --ai-json]
 patchshuttle capabilities
 patchshuttle schema
 patchshuttle explain TOPIC
@@ -1465,7 +1551,8 @@ Command behavior:
 - `run` accepts all job kinds and is the universal executor;
 - `status` reads registry and recent logs;
 - `rollback` uses an existing backup manifest;
-- `logs --last` prints the path to the latest log;
+- `logs --last` prints the path to the latest log; mutually exclusive `--ai`
+  and `--ai-json` render bounded deterministic views without changing it;
 - `capabilities`, `schema`, and `explain` inspect the installed contract without
   requiring a workspace;
 - `--workspace` applies to workspace-aware commands and must precede the
@@ -1748,6 +1835,17 @@ has been tested through a documented end-to-end scenario.
   `06f3125aacd92ae32a832d34d86246a97fdc74f7` passed final `main` and tag CI,
   TestPyPI and production Trusted Publishing, and a clean production-index
   installation on 2026-08-23.
+
+### Unreleased after `0.1.0a3`
+
+- bounded `search_context` and decorator-aware Python `read_symbol` audits;
+- guarded `replace_symbol` planning and transactional execution;
+- fixed changed-Python Ruff F-only checks without job-controlled options;
+- compact deterministic text and JSON views for the newest stored log;
+- explicit owner-managed Django warning baselines with advisory classification;
+- optional owner-selected project Python for Python-based checks and `{python}`
+  profiles, without virtual-environment autodetection or job overrides;
+- dogfooding corrections for handoff context and source redaction.
 
 ### `0.1.0b1`
 

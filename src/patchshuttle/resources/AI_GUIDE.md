@@ -42,6 +42,8 @@ When asked for a PatchShuttle job:
 - `tree` - bounded directory tree.
 - `read` - bounded text-file excerpt.
 - `search` - literal text search.
+- `search_context` - literal search with bounded physical-line context.
+- `read_symbol` - one exactly resolved Python symbol with range and hash.
 - `find_files` - bounded glob search.
 - `file_info` - file metadata.
 - `hash` - SHA-256 file hash.
@@ -55,6 +57,7 @@ When asked for a PatchShuttle job:
 - `create_directory` - create one directory.
 - `create_file` - create one new text file.
 - `replace_exact` - replace an exact text occurrence count.
+- `replace_symbol` - replace one guarded decorator-aware Python symbol.
 - `insert_before` - insert text before an exact anchor.
 - `insert_after` - insert text after an exact anchor.
 - `delete_exact` - delete exact text with an expected count.
@@ -99,13 +102,18 @@ actions:
 ## Checks
 
 - `compileall`
+- `ruff` - fixed `F` rules, no fixes, and only Python files changed by the current patch; use `ruff: {}`.
 - `pytest` - optional arguments are limited to `-q`, `--quiet`, `-v`,
   `--verbose`, `-x`, `--exitfirst`, `-s`, `--disable-warnings`,
   `--strict-config`, `--strict-markers`, positive `--maxfail=N`,
   `--tb=auto|long|short|line|native|no`, and
   `--capture=fd|sys|no|tee-sys`.
 - `unittest`
-- `django_check`
+- `django_check` - full logs retain command output and add advisory
+  `warning_analysis`, `known_warnings`, `new_warnings`, and
+  `new_warning_details` fields. Manage explicit known W-class IDs with
+  `patchshuttle warnings`, `--add ID`, and `--remove ID`. IDs are never
+  accepted automatically and do not change check pass or fail status.
 - `django_migrations_check`
 - `django_test` - labels must be dotted Python identifiers.
 - `django_import_check` - use for dotted modules that require Django settings
@@ -114,6 +122,18 @@ actions:
 - `profile` - only a profile already defined by the user in
   `patches/patchshuttle.toml`.
 
+## Project Python interpreter
+
+The workspace owner may set `execution.python_executable` in
+`patches/patchshuttle.toml`. Relative values resolve from the workspace root;
+absolute values remain absolute. When omitted, project checks use
+PatchShuttle's current interpreter. Jobs cannot set or override this value.
+
+The selected interpreter is used by `compileall`, `pytest`, `unittest`, the
+Django checks, `import_check`, and `{python}` in local profiles. Ruff,
+formatters, HTML lint, preflight, audits, and PatchShuttle internals keep using
+PatchShuttle's own interpreter. PatchShuttle does not auto-detect a virtual
+environment.
 ## Audit example
 
 ```yaml
@@ -181,7 +201,10 @@ can run without confirmation. Patch and verify jobs require explicit
 confirmation or deliberate `--yes` automation. If validation or planning
 fails after workspace resolution, ask for the generated failure `.log`; its
 path is printed in the terminal and available through
-`patchshuttle logs --last`. Use reported exact line numbers, nearby similarity
+`patchshuttle logs --last`. Prefer `patchshuttle logs --last --ai` for a
+compact deterministic text view or `--ai-json` for machine-readable output;
+the original full log remains unchanged. Use reported exact line numbers,
+nearby similarity
 matches, or
 unified-diff hunk diagnostics to correct the next job instead of guessing file
 content. `LINE_RANGE_OUT_OF_BOUNDS` and `LINE_RANGE_GUARD_MISMATCH` require a

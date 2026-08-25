@@ -5,6 +5,39 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased
 
+### Added
+
+- Read-only `search_context` returns bounded physical-line context around
+  literal matches, and `read_symbol` returns one exactly resolved
+  decorator-aware Python symbol with its physical range and canonical
+  LF/UTF-8 SHA-256.
+- Guarded `replace_symbol` replaces one exactly resolved Python class,
+  function, method, or nested symbol using the hash returned by
+  `read_symbol` and the planner's sequential simulated file state.
+- The built-in `ruff: {}` check runs fixed Ruff `F` rules without fixes
+  over only the Python files changed by the current patch.
+- `logs --last --ai` and `logs --last --ai-json` render bounded
+  deterministic text and JSON views of the newest stored log without
+  changing it or executing project code.
+- Explicit project-local Django warning baselines classify known and new
+  W-class system-check warnings without changing the check exit status.
+- Optional owner-controlled `[execution].python_executable` selects the
+  interpreter for Python-based project checks and `{python}` local
+  profiles. Jobs cannot set it, and omitted configuration retains the
+  existing interpreter behavior.
+
+### Changed
+
+- AI handoffs use a deterministic capability hash, generated handoff trees
+  omit legacy backup and archive artifacts, and source audit output avoids
+  the confirmed token-name redaction false positive.
+
+### Fixed
+
+- `replace_symbol` execution now enters the same guarded file-change
+  transaction as other planned text modifications, including revalidation,
+  backups, checks, rollback, logging, and workspace comparison.
+
 ## 0.1.0a3 - 2026-08-23
 
 Second alpha release, focused on AI-facing planning diagnostics, legacy-project

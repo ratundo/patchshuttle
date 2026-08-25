@@ -12,6 +12,8 @@ AUDIT_ACTIONS = (
     "tree",
     "read",
     "search",
+    "search_context",
+    "read_symbol",
     "find_files",
     "file_info",
     "hash",
@@ -23,6 +25,7 @@ CHANGE_ACTIONS = (
     "create_directory",
     "create_file",
     "replace_exact",
+    "replace_symbol",
     "insert_before",
     "insert_after",
     "delete_exact",
@@ -33,6 +36,7 @@ CHANGE_ACTIONS = (
 )
 CHECKS = (
     "compileall",
+    "ruff",
     "pytest",
     "unittest",
     "django_check",
@@ -70,6 +74,22 @@ example:
       old: "VALUE = 1"
       new: "VALUE = 2"
       expected_count: 1""",
+    "replace_symbol": """\
+category: change_action
+summary: Replace one exactly resolved decorator-aware Python symbol.
+fields: path, dotted symbol, expected_sha256, and new_content (required)
+planning: Resolution and guard validation use the current sequential simulated file state.
+canonicalization: The guard is read_symbol SHA-256 over canonical LF UTF-8 symbol source.
+idempotency: Exact desired symbol content becomes NO_CHANGE even when the prior guard no longer matches.
+safety: Syntax, missing or duplicate resolution, and hash mismatches fail without fuzzy relocation or line shifting.
+example:
+  - replace_symbol:
+      path: src/example.py
+      symbol: Service.run
+      expected_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      new_content: |
+            def run(self):
+                return 2""",
     "insert_before": """\
 category: change_action
 summary: Insert content immediately before an exact anchor.
@@ -107,6 +127,18 @@ summary: Insert content before or after one guarded physical line.
 fields: path, line, position=before|after, and content (required); expected_content and/or expected_sha256 (at least one required)
 planning: The referenced line is guarded before insertion and positions are 1-based.
 safety: Line numbers are never accepted as proof of identity.""",
+    "search_context": """\
+category: audit_action
+summary: Find literal text and return bounded physical-line context for each match.
+fields: text (required); path=., glob=null, case_sensitive=true, max_results=200, before=3, and after=3 (optional)
+output: Each deterministic match includes its path, line, bounded range, and numbered source lines.
+safety: Read-only, literal rather than regex, bounded, and subject to workspace audit policy.""",
+    "read_symbol": """\
+category: audit_action
+summary: Read one exactly resolved Python class, function, method, or nested symbol.
+fields: path and dotted symbol (required); max_bytes (optional)
+output: Includes symbol kind, decorator-aware physical range, canonical SHA-256, and numbered source lines.
+safety: Python AST locates boundaries without rewriting source; missing or duplicate symbols fail exactly.""",
     "hash_range": """\
 category: audit_action
 summary: Calculate the canonical SHA-256 guard for one 1-based inclusive physical-line range.
@@ -141,11 +173,18 @@ preflight: Plan records baseline and final-planned compatibility for each format
 exclusions: Exact .py paths may be set only in local isort_exclude or black_exclude lists.
 safety: Jobs cannot disable formatters, add exclusions, or change formatter order and scope.
 diagnostics: Baseline and patch incompatibility use distinct failure codes and retain bounded tool output.""",
+    "ruff": """\
+category: check
+summary: Run the fixed Pyflakes F rule family over Python files changed by the current patch.
+fields: none; the job shape is ruff: {}
+planning: Scope is derived from non-NO_CHANGE patch actions, deduplicated in action order, and limited to .py file targets.
+execution: Runs the current interpreter with -m ruff check --select F --no-fix -- and the immutable planned paths.
+safety: Jobs cannot select other rules, enable fixes, supply paths, or expand the check to the repository.""",
     "django_import_check": """\
 category: check
 summary: Import validated dotted modules through the project's Django environment.
 fields: manage_py (required path) and modules (required dotted identifiers)
-execution: Runs the current interpreter with manage.py shell -c and controlled import code.
+execution: Runs the owner-selected project interpreter, or PatchShuttle's interpreter when no override is configured, with manage.py shell -c and controlled import code.
 safety: No arbitrary Python expression or shell string is accepted from the job.""",
     "failure_logs": """\
 category: cli_workflow

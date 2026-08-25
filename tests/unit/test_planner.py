@@ -505,6 +505,143 @@ def test_create_file_rejects_binary_control_content(workspace: Workspace) -> Non
     assert caught.value.code is PlanningErrorCode.CONTENT_BINARY_FORBIDDEN
 
 
+def test_replace_symbol_uses_decorator_range_and_sequential_state(
+    workspace: Workspace,
+) -> None:
+    target = workspace.root / "module.py"
+    target.write_bytes(
+        b"def decorator(value):\n"
+        b"    return value\n"
+        b"\n"
+        b"@decorator\n"
+        b"def run():\n"
+        b"    return 1\n"
+    )
+    job = make_job(
+        actions=[
+            {
+                "replace_symbol": {
+                    "path": "module.py",
+                    "symbol": "run",
+                    "expected_sha256": "c5c0b9a55c002ac775193cfa1c96f7d635829cd163d9763a8e49f5bc1994f8be",
+                    "new_content": "@decorator\ndef run():\n    return 2\n",
+                }
+            },
+            {
+                "replace_symbol": {
+                    "path": "module.py",
+                    "symbol": "run",
+                    "expected_sha256": "d0f39ed153dc4bd820b03eda3bc40af25cd5e7548441411cd792d4b456888b67",
+                    "new_content": "@decorator\ndef run():\n    return 3\n",
+                }
+            },
+        ],
+        checks=[{"compileall": {"paths": ["module.py"]}}],
+    )
+
+    plan = plan_job(job, workspace)
+
+    assert [item.disposition for item in plan.actions] == [
+        ActionDisposition.MODIFY,
+        ActionDisposition.MODIFY,
+    ]
+    assert "symbol: run" in (plan.actions[0].detail or "")
+    assert "lines: 4-6" in (plan.actions[0].detail or "")
+    assert "guard_status: PASS" in (plan.actions[0].detail or "")
+    assert plan.file_changes[0].content == (
+        b"def decorator(value):\n"
+        b"    return value\n"
+        b"\n"
+        b"@decorator\n"
+        b"def run():\n"
+        b"    return 3\n"
+    )
+
+
+def test_replace_symbol_accepts_exact_desired_content_as_no_change(
+    workspace: Workspace,
+) -> None:
+    target = workspace.root / "module.py"
+    target.write_text("def run():\n    return 2\n", encoding="utf-8")
+    job = make_job(
+        actions=[
+            {
+                "replace_symbol": {
+                    "path": "module.py",
+                    "symbol": "run",
+                    "expected_sha256": "0" * 64,
+                    "new_content": "def run():\n    return 2\n",
+                }
+            }
+        ],
+        checks=[{"compileall": {"paths": ["module.py"]}}],
+    )
+
+    plan = plan_job(job, workspace)
+
+    assert plan.actions[0].disposition is ActionDisposition.NO_CHANGE
+    assert "guard_status: ALREADY_APPLIED" in (plan.actions[0].detail or "")
+    assert plan.files_to_modify == ()
+
+
+@pytest.mark.parametrize(
+    ("source", "symbol", "expected_sha256", "code"),
+    (
+        (
+            "def broken(:\n",
+            "broken",
+            "0" * 64,
+            PlanningErrorCode.PYTHON_SOURCE_INVALID,
+        ),
+        (
+            "def run():\n    return 1\n",
+            "missing",
+            "0" * 64,
+            PlanningErrorCode.PYTHON_SYMBOL_RESOLUTION_FAILED,
+        ),
+        (
+            "def run():\n    return 1\n\ndef run():\n    return 2\n",
+            "run",
+            "0" * 64,
+            PlanningErrorCode.PYTHON_SYMBOL_RESOLUTION_FAILED,
+        ),
+        (
+            "def run():\n    return 1\n",
+            "run",
+            "0" * 64,
+            PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
+        ),
+    ),
+)
+def test_replace_symbol_rejects_invalid_source_resolution_and_guard(
+    workspace: Workspace,
+    source: str,
+    symbol: str,
+    expected_sha256: str,
+    code: PlanningErrorCode,
+) -> None:
+    target = workspace.root / "module.py"
+    target.write_text(source, encoding="utf-8")
+    job = make_job(
+        actions=[
+            {
+                "replace_symbol": {
+                    "path": "module.py",
+                    "symbol": symbol,
+                    "expected_sha256": expected_sha256,
+                    "new_content": "def run():\n    return 2\n",
+                }
+            }
+        ],
+        checks=[{"compileall": {"paths": ["module.py"]}}],
+    )
+
+    with pytest.raises(PlanningError) as caught:
+        plan_job(job, workspace)
+
+    assert caught.value.code is code
+
+
 def test_replace_exact_preserves_utf8_bom_and_crlf(workspace: Workspace) -> None:
     target = workspace.root / "module.py"
     target.write_bytes(b"\xef\xbb\xbfVALUE = 1\r\nVALUE = 1\r\n")
@@ -1122,6 +1259,69 @@ def test_every_check_kind_is_planned(
     assert plan.checks[0].name == next(iter(check))
     assert plan.requires_confirmation is True
     assert plan.backup_destination is None
+
+
+def test_ruff_check_uses_only_changed_python_files(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (workspace.root / "existing.py").write_text("VALUE = 1\n", encoding="utf-8")
+    job = make_job(
+        actions=[
+            {
+                "create_file": {
+                    "path": "new.py",
+                    "content": "CREATED = True\n",
+                }
+            },
+            {
+                "create_file": {
+                    "path": "notes.txt",
+                    "content": "not Python\n",
+                }
+            },
+            {
+                "replace_exact": {
+                    "path": "existing.py",
+                    "old": "VALUE = 1",
+                    "new": "VALUE = 2",
+                }
+            },
+        ],
+        checks=[{"ruff": {}}],
+    )
+    monkeypatch.setattr(planner_module, "find_spec", lambda name: object())
+
+    plan = plan_job(job, workspace)
+
+    assert plan.checks[0].paths == (
+        PurePosixPath("new.py"),
+        PurePosixPath("existing.py"),
+    )
+
+
+def test_ruff_check_requires_a_changed_python_file(
+    workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = make_job(
+        actions=[
+            {
+                "create_file": {
+                    "path": "notes.txt",
+                    "content": "not Python\n",
+                }
+            }
+        ],
+        checks=[{"ruff": {}}],
+    )
+    monkeypatch.setattr(planner_module, "find_spec", lambda name: object())
+
+    with pytest.raises(PlanningError) as caught:
+        plan_job(job, workspace)
+
+    assert caught.value.code is PlanningErrorCode.CHECK_ARGUMENT_INVALID
+    assert "at least one changed Python file" in str(caught.value)
 
 
 def test_patch_check_can_target_a_virtual_file(workspace: Workspace) -> None:

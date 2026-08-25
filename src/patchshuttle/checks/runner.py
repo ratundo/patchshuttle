@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
+import os as os
+import subprocess as subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -12,8 +12,10 @@ from pathlib import Path
 
 from patchshuttle._process import (
     ProcessCommand,
-    _signal_process,
-    _terminate_process,
+)
+from patchshuttle._process import _signal_process as _signal_process
+from patchshuttle._process import _terminate_process as _terminate_process
+from patchshuttle._process import (
     run_process,
 )
 from patchshuttle.models import CheckName
@@ -72,6 +74,10 @@ class CheckResult:
     stderr: str
     stdout_truncated: bool
     stderr_truncated: bool
+    warning_analysis: str = "NOT_APPLICABLE"
+    known_warnings: int | None = None
+    new_warnings: int | None = None
+    new_warning_details: tuple[str, ...] = ()
 
     @property
     def success(self) -> bool:
@@ -114,10 +120,21 @@ def prepare_checks(plan: Plan) -> tuple[PreparedCheck, ...]:
 def run_checks(plan: Plan) -> CheckRunResult:
     """Run checks sequentially and stop immediately after the first failure."""
 
+    prepared = prepare_checks(plan)
+    known_warning_ids: frozenset[str] = frozenset()
+    if any(check.name == "django_check" for check in prepared):
+        from patchshuttle.warning_baseline import load_warning_baseline
+
+        baseline = load_warning_baseline(plan.workspace)
+        known_warning_ids = frozenset(baseline.django_check_ids)
     maximum = plan.workspace.config.execution.max_command_output_bytes
     results: list[CheckResult] = []
-    for check in prepare_checks(plan):
-        result = _run_check(check, maximum_output_bytes=maximum)
+    for check in prepared:
+        result = _run_check(
+            check,
+            maximum_output_bytes=maximum,
+            known_warning_ids=known_warning_ids,
+        )
         results.append(result)
         if not result.success:
             break
@@ -129,16 +146,50 @@ def _prepare_check(
     planned: PlannedCheck,
     parameters,
 ) -> PreparedCheck:
+    from patchshuttle.project_python import resolve_project_python
+
     paths = tuple(path.as_posix() for path in planned.paths)
     timeout = plan.workspace.config.execution.default_timeout_seconds
+    profile = (
+        plan.workspace.config.checks.profiles[parameters.name]
+        if planned.name == "profile"
+        else None
+    )
+    uses_project_python = planned.name in {
+        "compileall",
+        "pytest",
+        "unittest",
+        "django_check",
+        "django_migrations_check",
+        "django_test",
+        "django_import_check",
+        "import_check",
+    } or (profile is not None and "{python}" in profile.argv)
+    project_python = (
+        str(resolve_project_python(plan.workspace))
+        if uses_project_python
+        else sys.executable
+    )
 
     if planned.name == "compileall":
         quiet = (f"-{'q' * parameters.quiet}",) if parameters.quiet else ()
-        argv = (sys.executable, "-m", "compileall", *quiet, "--", *paths)
+        argv = (project_python, "-m", "compileall", *quiet, "--", *paths)
+    elif planned.name == "ruff":
+        argv = (
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--select",
+            "F",
+            "--no-fix",
+            "--",
+            *paths,
+        )
     elif planned.name == "pytest":
         path_arguments = ("--", *paths) if paths else ()
         argv = (
-            sys.executable,
+            project_python,
             "-m",
             "pytest",
             *parameters.args,
@@ -147,7 +198,7 @@ def _prepare_check(
         timeout = parameters.timeout_seconds or timeout
     elif planned.name == "unittest":
         argv = (
-            sys.executable,
+            project_python,
             "-m",
             "unittest",
             "discover",
@@ -157,10 +208,10 @@ def _prepare_check(
             parameters.pattern,
         )
     elif planned.name == "django_check":
-        argv = (sys.executable, _only_path(planned), "check")
+        argv = (project_python, _only_path(planned), "check")
     elif planned.name == "django_migrations_check":
         argv = (
-            sys.executable,
+            project_python,
             _only_path(planned),
             "makemigrations",
             "--check",
@@ -168,14 +219,14 @@ def _prepare_check(
         )
     elif planned.name == "django_test":
         argv = (
-            sys.executable,
+            project_python,
             _only_path(planned),
             "test",
             *parameters.labels,
         )
     elif planned.name == "django_import_check":
         argv = (
-            sys.executable,
+            project_python,
             _only_path(planned),
             "shell",
             "-c",
@@ -183,15 +234,16 @@ def _prepare_check(
         )
     elif planned.name == "import_check":
         argv = (
-            sys.executable,
+            project_python,
             "-c",
             _IMPORT_CHECK_CODE,
             *parameters.modules,
         )
     elif planned.name == "profile":
-        profile = plan.workspace.config.checks.profiles[parameters.name]
+        if profile is None:  # pragma: no cover - planner contract
+            raise ValueError("planned profile is not configured")
         argv = tuple(
-            sys.executable if argument == "{python}" else argument
+            project_python if argument == "{python}" else argument
             for argument in profile.argv
         )
         timeout = profile.timeout_seconds
@@ -217,6 +269,7 @@ def _run_check(
     check: PreparedCheck,
     *,
     maximum_output_bytes: int,
+    known_warning_ids: frozenset[str] = frozenset(),
 ) -> CheckResult:
     with tempfile.TemporaryDirectory(prefix="patchshuttle-pycache-") as cache:
         process = run_process(
@@ -228,6 +281,23 @@ def _run_check(
             ),
             maximum_output_bytes=maximum_output_bytes,
         )
+    warning_analysis = "NOT_APPLICABLE"
+    known_warnings: int | None = None
+    new_warnings: int | None = None
+    new_warning_details: tuple[str, ...] = ()
+    if check.name == "django_check":
+        from patchshuttle.warning_baseline import analyze_django_warning_output
+
+        analysis = analyze_django_warning_output(
+            process.stdout,
+            process.stderr,
+            known_ids=known_warning_ids,
+            output_truncated=(process.stdout_truncated or process.stderr_truncated),
+        )
+        warning_analysis = analysis.status
+        known_warnings = analysis.known_warnings
+        new_warnings = analysis.new_warnings
+        new_warning_details = analysis.new_warning_details
     return CheckResult(
         id=check.id,
         name=check.name,
@@ -241,6 +311,10 @@ def _run_check(
         stderr=process.stderr,
         stdout_truncated=process.stdout_truncated,
         stderr_truncated=process.stderr_truncated,
+        warning_analysis=warning_analysis,
+        known_warnings=known_warnings,
+        new_warnings=new_warnings,
+        new_warning_details=new_warning_details,
     )
 
 

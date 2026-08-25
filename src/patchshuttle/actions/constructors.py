@@ -58,6 +58,41 @@ def search(
     return Action({"search": parameters})
 
 
+def search_context(
+    text: str,
+    *,
+    path: str = ".",
+    glob: str | None = None,
+    case_sensitive: bool = True,
+    max_results: int = 200,
+    before: int = 3,
+    after: int = 3,
+) -> Action:
+    parameters = {
+        "path": path,
+        "text": text,
+        "case_sensitive": case_sensitive,
+        "max_results": max_results,
+        "before": before,
+        "after": after,
+    }
+    if glob is not None:
+        parameters["glob"] = glob
+    return Action({"search_context": parameters})
+
+
+def read_symbol(
+    path: str,
+    symbol: str,
+    *,
+    max_bytes: int | None = None,
+) -> Action:
+    parameters = {"path": path, "symbol": symbol}
+    if max_bytes is not None:
+        parameters["max_bytes"] = max_bytes
+    return Action({"read_symbol": parameters})
+
+
 def find_files(
     glob: str,
     *,
@@ -147,6 +182,25 @@ def replace_exact(
                 "old": old,
                 "new": new,
                 "expected_count": expected_count,
+            }
+        }
+    )
+
+
+def replace_symbol(
+    path: str,
+    symbol: str,
+    new_content: str,
+    *,
+    expected_sha256: str,
+) -> Action:
+    return Action(
+        {
+            "replace_symbol": {
+                "path": path,
+                "symbol": symbol,
+                "expected_sha256": expected_sha256,
+                "new_content": new_content,
             }
         }
     )
@@ -324,8 +378,10 @@ __all__ = [
     "insert_at_line",
     "insert_before",
     "read",
+    "read_symbol",
     "replace_exact",
     "replace_range",
     "search",
+    "search_context",
     "tree",
 ]

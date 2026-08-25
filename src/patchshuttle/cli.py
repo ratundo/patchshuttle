@@ -30,6 +30,7 @@ from patchshuttle.logging import (
     AttemptLogData,
     current_run_clock,
     latest_log_path,
+    render_latest_ai_log,
     write_attempt_log,
 )
 from patchshuttle.models import Job, JobKind
@@ -216,22 +217,105 @@ def plan_command(job_file: Path, show_diff: bool) -> None:
     "--last",
     "show_last",
     is_flag=True,
-    help="Print the path to the latest PatchShuttle run log.",
+    help="Print or summarize the latest PatchShuttle run log.",
 )
-def logs_command(show_last: bool) -> None:
-    """Locate generated PatchShuttle run logs."""
+@click.option(
+    "--ai",
+    "show_ai",
+    is_flag=True,
+    help="Print a compact deterministic text view of the latest log.",
+)
+@click.option(
+    "--ai-json",
+    "show_ai_json",
+    is_flag=True,
+    help="Print a compact deterministic JSON view of the latest log.",
+)
+def logs_command(
+    show_last: bool,
+    show_ai: bool,
+    show_ai_json: bool,
+) -> None:
+    """Locate or compactly render generated PatchShuttle run logs."""
 
     if not show_last:
         raise click.UsageError("the --last option is required")
+    if show_ai and show_ai_json:
+        raise click.UsageError("the --ai and --ai-json options are mutually exclusive")
     try:
         workspace = _resolve_cli_workspace()
         path = latest_log_path(workspace)
+        if show_ai or show_ai_json:
+            rendered = render_latest_ai_log(
+                path,
+                json_output=show_ai_json,
+            )
+        else:
+            rendered = path.as_posix() + "\n"
     except WorkspaceError as error:
         _fail_workspace(error, failure_prefix="LOGS_FAILED")
     except ExecutionError as error:
         click.echo(f"LOGS_FAILED {error}", err=True)
         raise click.exceptions.Exit(execution_exit_code(error.code)) from error
-    click.echo(path.as_posix())
+    click.echo(rendered, nl=False)
+
+
+@main.command("warnings")
+@click.option(
+    "--add",
+    "add_ids",
+    multiple=True,
+    metavar="ID",
+    help="Explicitly classify a Django W-class system-check ID as known.",
+)
+@click.option(
+    "--remove",
+    "remove_ids",
+    multiple=True,
+    metavar="ID",
+    help="Remove a Django warning ID from the explicit baseline.",
+)
+def warnings_command(
+    add_ids: tuple[str, ...],
+    remove_ids: tuple[str, ...],
+) -> None:
+    """List or explicitly update the project-local Django warning baseline."""
+
+    overlap = set(add_ids) & set(remove_ids)
+    if overlap:
+        joined = ", ".join(sorted(overlap))
+        raise click.UsageError(
+            f"warning IDs cannot be added and removed together: {joined}"
+        )
+    try:
+        workspace = _resolve_cli_workspace()
+        from patchshuttle.warning_baseline import (
+            load_warning_baseline,
+            render_warning_baseline,
+            update_warning_baseline,
+        )
+
+        updated = bool(add_ids or remove_ids)
+        if updated:
+            from patchshuttle.runner import acquire_workspace_lock
+
+            with acquire_workspace_lock(workspace):
+                baseline = update_warning_baseline(
+                    workspace,
+                    add=add_ids,
+                    remove=remove_ids,
+                )
+        else:
+            baseline = load_warning_baseline(workspace)
+        rendered = render_warning_baseline(baseline, updated=updated)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
+    except WorkspaceError as error:
+        _fail_workspace(error, failure_prefix="WARNINGS_FAILED")
+    except ExecutionError as error:
+        click.echo(f"WARNINGS_FAILED {error}", err=True)
+        raise click.exceptions.Exit(execution_exit_code(error.code)) from error
+    click.echo(rendered, nl=False)
 
 
 @main.command("snapshot")
@@ -1002,6 +1086,12 @@ def _render_plan(plan: Plan, *, show_diff: bool = False) -> str:
         f"job_id: {plan.job.id}",
         f"job_hash: {plan.job_hash}",
         f"kind: {plan.job.kind.value}",
+        "project_python: "
+        + (
+            plan.project_python.as_posix()
+            if plan.project_python is not None
+            else "NOT_APPLICABLE"
+        ),
         f"planned_actions: {len(plan.actions)}",
     ]
     for action in plan.actions:

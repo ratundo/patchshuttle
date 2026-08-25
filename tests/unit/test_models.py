@@ -14,6 +14,11 @@ AUDIT_ACTIONS: tuple[tuple[dict[str, Any], str], ...] = (
     ({"tree": {}}, "tree"),
     ({"read": {"path": "README.md"}}, "read"),
     ({"search": {"text": "TODO"}}, "search"),
+    ({"search_context": {"text": "TODO"}}, "search_context"),
+    (
+        {"read_symbol": {"path": "src/example.py", "symbol": "Service.run"}},
+        "read_symbol",
+    ),
     ({"find_files": {"glob": "*.py"}}, "find_files"),
     ({"file_info": {"path": "pyproject.toml"}}, "file_info"),
     ({"hash": {"path": "README.md"}}, "hash"),
@@ -51,6 +56,17 @@ CHANGE_ACTIONS: tuple[tuple[dict[str, Any], str], ...] = (
             }
         },
         "replace_exact",
+    ),
+    (
+        {
+            "replace_symbol": {
+                "path": "src/example.py",
+                "symbol": "Service.run",
+                "expected_sha256": "a" * 64,
+                "new_content": "    def run(self):\n        return 2\n",
+            }
+        },
+        "replace_symbol",
     ),
     (
         {
@@ -128,6 +144,7 @@ CHANGE_ACTIONS: tuple[tuple[dict[str, Any], str], ...] = (
 
 CHECKS: tuple[tuple[dict[str, Any], str], ...] = (
     ({"compileall": {"paths": ["src"]}}, "compileall"),
+    ({"ruff": {}}, "ruff"),
     (
         {
             "pytest": {
@@ -269,6 +286,26 @@ def test_action_and_check_entries_must_be_mappings() -> None:
         {"tree": {"include_hidden": 1}},
         {"read": {"path": "README.md", "start_line": 0}},
         {"read": {"path": "README.md", "start_line": 10, "end_line": 9}},
+        {"search_context": {"text": "TODO", "before": -1}},
+        {"search_context": {"text": "TODO", "after": 501}},
+        {"read_symbol": {"path": "example.py", "symbol": "Service..run"}},
+        {"read_symbol": {"path": "example.py", "symbol": "run", "max_bytes": 0}},
+        {
+            "replace_symbol": {
+                "path": "example.py",
+                "symbol": "Service..run",
+                "expected_sha256": "a" * 64,
+                "new_content": "    def run(self):\n        return 2\n",
+            }
+        },
+        {
+            "replace_symbol": {
+                "path": "example.py",
+                "symbol": "Service.run",
+                "expected_sha256": "not-a-sha256",
+                "new_content": "    def run(self):\n        return 2\n",
+            }
+        },
         {
             "hash_range": {
                 "path": "README.md",
@@ -457,6 +494,30 @@ def test_documented_action_defaults_are_stable() -> None:
         "algorithm": "sha256",
     }
     assert guarded.expected_sha256 == "a" * 64
+
+
+def test_context_action_defaults_are_stable() -> None:
+    search_context = Action.model_validate(
+        {"search_context": {"text": "TODO"}}
+    ).parameters
+    read_symbol = Action.model_validate(
+        {"read_symbol": {"path": "example.py", "symbol": "Service.run"}}
+    ).parameters
+
+    assert search_context.model_dump() == {
+        "path": ".",
+        "text": "TODO",
+        "glob": None,
+        "case_sensitive": True,
+        "max_results": 200,
+        "before": 3,
+        "after": 3,
+    }
+    assert read_symbol.model_dump() == {
+        "path": "example.py",
+        "symbol": "Service.run",
+        "max_bytes": None,
+    }
 
 
 def test_audit_job_requires_only_audit_actions() -> None:

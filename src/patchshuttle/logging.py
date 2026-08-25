@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -54,6 +55,16 @@ _AVAILABLE_JOB_KINDS = format_capability_list(JOB_KINDS)
 _AVAILABLE_AUDIT_ACTIONS = format_capability_list(AUDIT_ACTIONS)
 _AVAILABLE_CHANGE_ACTIONS = format_capability_list(CHANGE_ACTIONS)
 _AVAILABLE_CHECKS = format_capability_list(CHECKS)
+_CAPABILITIES_HASH = hashlib.sha256(
+    "\n".join(
+        (
+            f"job_kinds:{_AVAILABLE_JOB_KINDS}",
+            f"audit_actions:{_AVAILABLE_AUDIT_ACTIONS}",
+            f"change_actions:{_AVAILABLE_CHANGE_ACTIONS}",
+            f"checks:{_AVAILABLE_CHECKS}",
+        )
+    ).encode("utf-8")
+).hexdigest()[:12]
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----.*?" r"-----END \1-----",
     re.DOTALL,
@@ -62,10 +73,14 @@ _AUTHORIZATION = re.compile(
     r"(?i)(\bauthorization\s*[:=]\s*(?:bearer|basic)\s+)[^\s\"']+"
 )
 _ASSIGNMENT = re.compile(
-    r"(?i)([\"']?\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
-    r"password|passwd|secret|token)[\"']?\s*[:=]\s*)"
-    r"(?:[\"'][^\"'\r\n]*[\"']|[^\s,;]+)"
+    r"(?i)(?P<prefix>[\"']?\b(?P<key>api[_-]?key|access[_-]?token|auth[_-]?token|"
+    r"client[_-]?secret|password|passwd|secret|token)[\"']?\s*[:=]\s*)"
+    r"(?P<value>[\"'][^\"'\r\n]*[\"']|[A-Za-z_][A-Za-z0-9_.]*\([^,\r\n]*\)|[^\s,;)\]}]+)"
 )
+_SAFE_ANNOTATION_VALUES = frozenset(
+    {"any", "bytearray", "bytes", "memoryview", "none", "str"}
+)
+_PYTHON_CALL_VALUE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\([^,\r\n]*\)")
 _FLAG_VALUE = re.compile(
     r"(?i)(--(?:api-key|access-token|auth-token|client-secret|password|secret|token)"
     r"(?:=|\s+))[^\s\"']+"
@@ -278,10 +293,8 @@ def write_attempt_log(data: AttemptLogData) -> Path:
             f"failed_item: {_scalar(data.failed_item or 'NOT_APPLICABLE')}",
             f"failed_path: {_scalar(data.failed_path or 'NOT_APPLICABLE')}",
             "rollback: NOT_STARTED",
-            f"available_job_kinds: {_AVAILABLE_JOB_KINDS}",
-            f"available_audit_actions: {_AVAILABLE_AUDIT_ACTIONS}",
-            f"available_change_actions: {_AVAILABLE_CHANGE_ACTIONS}",
-            f"available_checks: {_AVAILABLE_CHECKS}",
+            "ai_handoff_version: 2",
+            f"capabilities_hash: {_CAPABILITIES_HASH}",
             "next_expected_response: corrected_patch_or_audit",
             "=== END_PATCHSHUTTLE_AI_HANDOFF ===",
         )
@@ -292,6 +305,57 @@ def write_attempt_log(data: AttemptLogData) -> Path:
         label=data.result,
         content=content,
     )
+
+
+def render_latest_ai_log(path: Path, *, json_output: bool) -> str:
+    """Read one existing log and return a bounded compact AI view."""
+
+    try:
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise _record_error(
+                "latest log is not a safe regular file",
+                path=path.as_posix(),
+            )
+        if metadata.st_size > 5_000_000:
+            raise _record_error(
+                "latest log exceeds the compact-view size limit",
+                path=path.as_posix(),
+            )
+        raw = path.read_bytes()
+    except ExecutionError:
+        raise
+    except OSError as exc:
+        raise _record_error(
+            "latest log could not be read",
+            path=path.as_posix(),
+        ) from exc
+    if len(raw) > 5_000_000:
+        raise _record_error(
+            "latest log exceeds the compact-view size limit",
+            path=path.as_posix(),
+        )
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise _record_error(
+            "latest log is not valid UTF-8",
+            path=path.as_posix(),
+        ) from exc
+
+    from patchshuttle._ai_log import render_ai_log
+
+    try:
+        return render_ai_log(
+            text,
+            source=path.as_posix(),
+            json_output=json_output,
+        )
+    except ValueError as exc:
+        raise _record_error(
+            "latest log does not support a compact AI view",
+            path=path.as_posix(),
+        ) from exc
 
 
 def latest_log_path(workspace: Workspace) -> Path:
@@ -318,6 +382,29 @@ def latest_log_path(workspace: Workspace) -> Path:
     return max(candidates)[2]
 
 
+def capabilities_hash() -> str:
+    """Return a stable short hash for the installed declarative capabilities."""
+
+    return _CAPABILITIES_HASH
+
+
+def _redact_assignment(match: re.Match[str]) -> str:
+    prefix = match.group("prefix")
+    candidate = match.group("value")
+    if candidate.startswith(('"', "'")):
+        return prefix + "[REDACTED]"
+
+    key = match.group("key").casefold().replace("-", "_")
+    normalized = candidate.casefold()
+    if (
+        normalized == key
+        or normalized in _SAFE_ANNOTATION_VALUES
+        or _PYTHON_CALL_VALUE.fullmatch(candidate) is not None
+    ):
+        return match.group(0)
+    return prefix + "[REDACTED]"
+
+
 def redact_text(value: str) -> str:
     """Mask common credential shapes without claiming exhaustive removal."""
 
@@ -330,7 +417,7 @@ def redact_text(value: str) -> str:
         value,
     )
     value = _AUTHORIZATION.sub(r"\1[REDACTED]", value)
-    value = _ASSIGNMENT.sub(r"\1[REDACTED]", value)
+    value = _ASSIGNMENT.sub(_redact_assignment, value)
     value = _FLAG_VALUE.sub(r"\1[REDACTED]", value)
     return _KNOWN_TOKEN.sub("[REDACTED]", value)
 
@@ -410,6 +497,12 @@ def _plan_section(plan: Plan | None) -> str:
     lines = [
         f"planned_actions: {len(plan.actions)}",
         f"planned_checks: {len(plan.checks)}",
+        "project_python: "
+        + (
+            plan.project_python.as_posix()
+            if plan.project_python is not None
+            else "NOT_APPLICABLE"
+        ),
         f"files_to_create: {_json_paths(plan.files_to_create)}",
         f"files_to_modify: {_json_paths(plan.files_to_modify)}",
         f"directories_to_create: {_json_paths(plan.directories_to_create)}",
@@ -559,6 +652,13 @@ def _check_record(item: CheckResult, workspace: Workspace) -> str:
         timeout=item.timeout_seconds,
         exit_code=item.return_code,
         duration_ms=item.duration_ms,
+        warning_analysis=item.warning_analysis,
+        known_warnings=item.known_warnings,
+        new_warnings=item.new_warnings,
+        new_warning_details=json.dumps(
+            list(item.new_warning_details),
+            ensure_ascii=False,
+        ),
         stdout=(item.stdout if include_output else "OMITTED_BY_LOCAL_POLICY"),
         stderr=(item.stderr if include_output else "OMITTED_BY_LOCAL_POLICY"),
         stdout_truncated=item.stdout_truncated,
@@ -740,10 +840,8 @@ def _handoff_section(data: RunLogData) -> str:
         failure_code=data.failure_code,
         failed_item=(data.error.item_id if data.error is not None else None),
         rollback=rollback,
-        available_job_kinds=_AVAILABLE_JOB_KINDS,
-        available_audit_actions=_AVAILABLE_AUDIT_ACTIONS,
-        available_change_actions=_AVAILABLE_CHANGE_ACTIONS,
-        available_checks=_AVAILABLE_CHECKS,
+        ai_handoff_version=2,
+        capabilities_hash=_CAPABILITIES_HASH,
         next_expected_response=(
             "next_patch_or_audit"
             if data.result in {"COMPLETED", "NO_CHANGE", "ALREADY_APPLIED"}
@@ -917,9 +1015,11 @@ __all__ = [
     "RunLogData",
     "STANDARD_SECTIONS",
     "archive_job_source",
+    "capabilities_hash",
     "current_run_clock",
     "latest_log_path",
     "redact_text",
+    "render_latest_ai_log",
     "write_run_log",
     "write_named_log",
     "write_attempt_log",

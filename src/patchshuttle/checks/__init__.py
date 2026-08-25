@@ -9,6 +9,7 @@ from patchshuttle.checks.constructors import (
     import_check,
     profile,
     pytest,
+    ruff,
     unittest,
 )
 from patchshuttle.checks.runner import (
@@ -26,6 +27,7 @@ __all__ = [
     "CheckStatus",
     "PreparedCheck",
     "compileall",
+    "ruff",
     "django_check",
     "django_import_check",
     "django_migrations_check",

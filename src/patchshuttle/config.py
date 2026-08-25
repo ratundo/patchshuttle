@@ -73,6 +73,7 @@ class ProjectSettings(_ConfigModel):
 
 
 class ExecutionSettings(_ConfigModel):
+    python_executable: StrictString | None = None
     confirm: bool = Field(default=True, strict=True)
     auto_rollback: bool = Field(default=True, strict=True)
     allow_keep_changes: bool = Field(default=True, strict=True)
@@ -245,6 +246,8 @@ def render_default_config(
         f"{_render_array(project.protected_path_exceptions)}\n\n"
         f"ignored_paths = {_render_array(project.ignored_paths)}\n\n"
         "[execution]\n"
+        "# Optional project interpreter; relative paths start at the workspace root.\n"
+        '# python_executable = "path/to/project-python"\n'
         "confirm = true\n"
         "auto_rollback = true\n"
         "allow_keep_changes = true\n"

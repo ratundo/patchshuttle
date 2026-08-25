@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import stat
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -102,6 +101,64 @@ def test_all_audit_actions_are_bounded_logged_and_read_only(
     record = load_registry(workspace).jobs[job.id]
     assert record.latest_result == "COMPLETED"
     assert record.kind == "audit"
+
+
+def test_search_context_and_read_symbol_are_bounded_and_read_only(
+    workspace: Workspace,
+) -> None:
+    (workspace.root / "symbols.py").write_text(
+        "def decorator(value):\n"
+        "    return value\n"
+        "\n"
+        "@decorator\n"
+        "class Service:\n"
+        "    def method(self):\n"
+        "        marker = 'TODO'\n"
+        "        return marker\n"
+        "\n"
+        "async def worker():\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    job = Job(
+        protocol=1,
+        project_id=PROJECT_ID,
+        id="AUDIT-CONTEXT-SYMBOLS",
+        kind="audit",
+        actions=[
+            {
+                "search_context": {
+                    "path": "symbols.py",
+                    "text": "TODO",
+                    "before": 1,
+                    "after": 1,
+                }
+            },
+            {"read_symbol": {"path": "symbols.py", "symbol": "Service.method"}},
+            {"read_symbol": {"path": "symbols.py", "symbol": "Service"}},
+            {"read_symbol": {"path": "symbols.py", "symbol": "worker"}},
+        ],
+    )
+
+    result = execute_plan(plan_job(job, workspace))
+
+    context, method, service, worker = (item.output for item in result.audit_results)
+    assert "matches: 1" in context
+    assert "context_start_line: 6" in context
+    assert "context_end_line: 8" in context
+    assert ">     7:         marker = 'TODO'" in context
+    assert "symbol: Service.method" in method
+    assert "kind: function" in method
+    assert "start_line: 6" in method
+    assert "end_line: 8" in method
+    assert "sha256:" in method
+    assert "symbol: Service" in service
+    assert "kind: class" in service
+    assert "start_line: 4" in service
+    assert "end_line: 8" in service
+    assert "symbol: worker" in worker
+    assert "kind: async_function" in worker
+    assert result.workspace_comparison.success is True
 
 
 def test_audit_read_marks_output_truncation(workspace: Workspace) -> None:
@@ -499,6 +556,12 @@ def test_audit_git_and_tool_adapters(
     assert audit_module._package_version("package-that-does-not-exist") == (
         "NOT_AVAILABLE"
     )
+    monkeypatch.setattr(
+        audit_module,
+        "_package_version",
+        lambda name: f"{name}-version",
+    )
+    assert "ruff: ruff-version" in audit_module._environment(plan)
 
 
 def test_audit_internal_failures_are_mapped(

@@ -37,6 +37,7 @@ _MANAGED_FILES = (
     Path("patches/PATCHSHUTTLE_PROTOCOL.md"),
     Path("patches/patchshuttle.schema.json"),
     Path("patches/state/registry.json"),
+    Path("patches/state/warning-baseline.json"),
     Path("patches/state/run.lock"),
     Path("patches/examples/AUDIT-EXAMPLE.psh.yaml"),
     Path("patches/examples/PATCH-EXAMPLE.psh.yaml"),
@@ -398,6 +399,17 @@ def _generated_files(config: PatchShuttleConfig) -> dict[Path, str]:
         + "\n",
         Path("patches/state/registry.json"): json.dumps(
             {"jobs": {}, "project_id": project_id},
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        Path("patches/state/warning-baseline.json"): json.dumps(
+            {
+                "django_check_ids": [],
+                "project_id": project_id,
+                "schema": "patchshuttle.warning_baseline.v1",
+            },
             ensure_ascii=False,
             indent=2,
             sort_keys=True,

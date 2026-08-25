@@ -29,6 +29,9 @@ name.
 - `tree`: `path`, `depth`, `max_entries`, `include_hidden`.
 - `read`: `path`, `start_line`, `end_line`, `max_bytes`.
 - `search`: `path`, `text`, `glob`, `case_sensitive`, `max_results`.
+- `search_context`: the `search` fields plus bounded `before` and `after`
+  physical-line counts.
+- `read_symbol`: Python `path`, dotted `symbol`, and optional `max_bytes`.
 - `find_files`: `path`, `glob`, `max_results`.
 - `file_info`: `path`.
 - `hash`: `path`, optional `algorithm: sha256`.
@@ -37,11 +40,18 @@ name.
 - `git_status`: empty mapping.
 - `environment`: empty mapping.
 
+`search_context` returns bounded numbered physical-line windows around literal
+matches. `read_symbol` parses Python without importing project code, requires
+exactly one decorator-aware class, function, method, or nested-symbol match,
+and returns its physical range plus canonical LF/UTF-8 SHA-256.
+
 ## Change actions
 
 - `create_directory`: `path`.
 - `create_file`: `path`, `content`, optional `encoding` and `newline`.
 - `replace_exact`: `path`, `old`, `new`, `expected_count`.
+- `replace_symbol`: `path`, dotted `symbol`, `expected_sha256`, and
+  `new_content`. The hash is the canonical value returned by `read_symbol`.
 - `insert_before`: `path`, `anchor`, `content`, `expected_count`.
 - `insert_after`: `path`, `anchor`, `content`, `expected_count`.
 - `delete_exact`: `path`, `text`, `expected_count`.
@@ -64,13 +74,23 @@ shift a range.
 ## Checks
 
 - `compileall`: non-empty `paths`, optional `quiet` from `0` through `2`.
+- `ruff`: empty mapping. For a patch, PatchShuttle derives the ordered scope
+  only from changed Python files and runs fixed `F` rules with no fixes. Jobs
+  cannot provide paths, rules, fixes, or Ruff arguments.
 - `pytest`: optional `paths`, `args`, and `timeout_seconds`. Allowed arguments:
   `-q`, `--quiet`, `-v`, `--verbose`, `-x`, `--exitfirst`, `-s`,
   `--disable-warnings`, `--strict-config`, `--strict-markers`, positive
   `--maxfail=N`, `--tb=auto|long|short|line|native|no`, and
   `--capture=fd|sys|no|tee-sys`.
 - `unittest`: `discover` and `pattern`.
-- `django_check`: `manage_py`.
+- `django_check`: `manage_py`. Its Django `WARNINGS:` output is compared
+  with the explicit protected baseline at
+  `patches/state/warning-baseline.json`. Full and compact logs report
+  known and new counts plus complete new-warning records. Truncated output
+  is marked `INCOMPLETE_TRUNCATED`; classification never changes the
+  process status. `patchshuttle warnings [--add ID] [--remove ID]` is the
+  only supported baseline mutation path, and no ID is accepted
+  automatically.
 - `django_migrations_check`: `manage_py`.
 - `django_test`: `manage_py` and optional dotted-identifier `labels`.
 - `django_import_check`: `manage_py` and non-empty dotted Python `modules`.
@@ -78,6 +98,19 @@ shift a range.
 - `profile`: `name` of a local profile already defined in
   `patches/patchshuttle.toml`.
 
+## Project Python interpreter
+
+`[execution].python_executable` is optional local owner policy in
+`patches/patchshuttle.toml`. A relative value resolves from the workspace root,
+an absolute value remains absolute, and the effective target must be an existing
+regular file before a project check runs. Omission preserves `sys.executable`.
+Jobs cannot set or override the value, and PatchShuttle performs no virtual
+environment autodetection.
+
+The effective project interpreter drives `compileall`, `pytest`, `unittest`,
+all Django checks, `import_check`, and `{python}` in local profiles. Ruff,
+isort, Black, HTML lint, quality preflight, audits, and PatchShuttle internals
+continue to use PatchShuttle's own interpreter.
 ## Local authority and safety
 
 Jobs cannot change project identity, protected paths, confirmation, backups,
@@ -92,7 +125,7 @@ symbolic-link escapes, binary targets, special files, and files outside
 configured limits.
 
 Use `patchshuttle capabilities`, `patchshuttle schema`, and
-`patchshuttle explain replace_exact` to inspect the installed protocol without
+`patchshuttle explain replace_symbol` to inspect the installed protocol without
 reading generated protected files. Workspace-aware commands accept an exact
 root as a global option before the command:
 `patchshuttle --workspace PATH COMMAND [ARGS]`. Without it, PatchShuttle

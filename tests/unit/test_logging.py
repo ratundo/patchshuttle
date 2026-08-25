@@ -153,6 +153,26 @@ def test_redaction_masks_common_shapes_and_preserves_nonsecret_context() -> None
     assert redacted.count("[REDACTED]") >= 7
 
 
+def test_redaction_preserves_python_references_annotations_and_calls() -> None:
+    source = "\n".join(
+        (
+            "    access_token: str,",
+            "access_token=access_token,",
+            "access_token = refresh_access_token()",
+            "find_inbox(access_token=access_token)",
+            "password=hunter2",
+        )
+    )
+
+    redacted = redact_text(source)
+
+    assert "access_token: str" in redacted
+    assert redacted.count("access_token=access_token") == 2
+    assert "access_token = refresh_access_token()" in redacted
+    assert "hunter2" not in redacted
+    assert "password=[REDACTED]" in redacted
+
+
 def test_log_has_every_fixed_section_ai_footer_redaction_and_collision(
     workspace: Workspace,
     job: Job,
@@ -192,6 +212,12 @@ def test_log_has_every_fixed_section_ai_footer_redaction_and_collision(
     assert "result: PATCH_ID_CONFLICT" in text
     assert "failure_stage: JOB" in text
     assert "next_expected_response: corrected_patch_or_audit" in text
+    assert "ai_handoff_version: 2" in text
+    assert f"capabilities_hash: {logging_module.capabilities_hash()}" in text
+    assert "available_job_kinds:" not in text
+    assert "available_audit_actions:" not in text
+    assert "available_change_actions:" not in text
+    assert "available_checks:" not in text
     assert latest_log_path(workspace) == second
 
 
@@ -337,6 +363,33 @@ def test_log_records_failed_action_formatted_check_split_and_external_reference(
     assert "status: FAILED\n" in text
     assert "=== FORMAT_ISORT ===\nformatter_id: formatter_001" in text
     assert text.count("check_id: check_001") == 2
+    assert text.count("warning_analysis: NOT_APPLICABLE") == 2
+    assert text.count("known_warnings: NOT_APPLICABLE") == 2
+    assert text.count("new_warnings: NOT_APPLICABLE") == 2
+    assert text.count("new_warning_details: []") == 2
+
+
+def test_compact_log_reader_rejects_unsafe_oversized_and_invalid_logs(
+    workspace: Workspace,
+) -> None:
+    unsafe = workspace.root / "patches/logs/unsafe.log"
+    unsafe.mkdir()
+    with pytest.raises(ExecutionError, match="not a safe regular file"):
+        logging_module.render_latest_ai_log(unsafe, json_output=False)
+
+    oversized = workspace.root / "patches/logs/oversized.log"
+    oversized.write_bytes(b"x" * 5_000_001)
+    with pytest.raises(ExecutionError, match="compact-view size limit"):
+        logging_module.render_latest_ai_log(oversized, json_output=False)
+
+    unsupported = workspace.root / "patches/logs/unsupported.log"
+    unsupported.write_text(
+        "=== HEADER ===\nprotocol: 1\n",
+        encoding="utf-8",
+        newline="",
+    )
+    with pytest.raises(ExecutionError, match="does not support"):
+        logging_module.render_latest_ai_log(unsupported, json_output=True)
 
 
 def test_latest_log_inspection_and_both_new_file_failure_paths(

@@ -35,9 +35,12 @@ from patchshuttle.actions import (
     insert_at_line,
     insert_before,
     read,
+    read_symbol,
     replace_exact,
     replace_range,
+    replace_symbol,
     search,
+    search_context,
     tree,
 )
 from patchshuttle.checks import (
@@ -51,6 +54,7 @@ from patchshuttle.checks import (
 )
 from patchshuttle.checks import pytest as pytest_check
 from patchshuttle.checks import (
+    ruff,
     unittest,
 )
 from patchshuttle.cli import main
@@ -124,6 +128,35 @@ def test_handoff_includes_latest_context_and_expected_yaml_response(
     assert "AUDIT-HANDOFF kind=audit result=COMPLETED" in text
     assert "EXPECTED_RESPONSE: one .psh.yaml file only" in text
     assert "VALUE = 1" not in text
+    assert "ai_handoff_version: 2" in text
+    assert "capabilities_hash:" in text
+    assert "capabilities_command: patchshuttle capabilities" in text
+    assert "audit_actions:" not in text
+    assert "change_actions:" not in text
+    assert "checks:" not in text
+
+
+def test_handoff_tree_omits_legacy_backups_and_tar_archives_only(
+    workspace: Workspace,
+) -> None:
+    (workspace.root / "current.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (workspace.root / "legacy.py.bak_20260824").write_text(
+        "VALUE = 0\n",
+        encoding="utf-8",
+    )
+    distribution = workspace.root / "dist"
+    distribution.mkdir()
+    (distribution / "package.tar.gz").write_bytes(b"archive")
+
+    snapshot = create_snapshot(workspace).path.read_text("utf-8")
+    handoff = create_handoff(workspace).path.read_text("utf-8")
+
+    assert "current.py [file]" in snapshot
+    assert "legacy.py.bak_20260824 [file]" in snapshot
+    assert "dist/package.tar.gz [file]" in snapshot
+    assert "current.py [file]" in handoff
+    assert "legacy.py.bak_20260824" not in handoff
+    assert "dist/package.tar.gz" not in handoff
 
 
 def test_snapshot_and_handoff_apply_output_bound_and_cli_commands(
@@ -183,6 +216,36 @@ def test_all_action_constructors_match_yaml_models() -> None:
             },
         ),
         (
+            search_context(
+                "TODO",
+                path="src",
+                glob="*.py",
+                case_sensitive=False,
+                before=2,
+                after=5,
+            ),
+            {
+                "search_context": {
+                    "text": "TODO",
+                    "path": "src",
+                    "glob": "*.py",
+                    "case_sensitive": False,
+                    "before": 2,
+                    "after": 5,
+                }
+            },
+        ),
+        (
+            read_symbol("src/example.py", "Service.run", max_bytes=1000),
+            {
+                "read_symbol": {
+                    "path": "src/example.py",
+                    "symbol": "Service.run",
+                    "max_bytes": 1000,
+                }
+            },
+        ),
+        (
             find_files("*.py", path="src"),
             {"find_files": {"glob": "*.py", "path": "src"}},
         ),
@@ -208,6 +271,22 @@ def test_all_action_constructors_match_yaml_models() -> None:
         (
             replace_exact("a.txt", "a", "b"),
             {"replace_exact": {"path": "a.txt", "old": "a", "new": "b"}},
+        ),
+        (
+            replace_symbol(
+                "a.py",
+                "Service.run",
+                "    def run(self):\n        return 2\n",
+                expected_sha256="a" * 64,
+            ),
+            {
+                "replace_symbol": {
+                    "path": "a.py",
+                    "symbol": "Service.run",
+                    "expected_sha256": "a" * 64,
+                    "new_content": "    def run(self):\n        return 2\n",
+                }
+            },
         ),
         (
             insert_before("a.txt", "a", "b"),
@@ -308,6 +387,7 @@ def test_all_check_constructors_match_yaml_models() -> None:
         ),
         (import_check(["json"]), {"import_check": {"modules": ["json"]}}),
         (profile("local"), {"profile": {"name": "local"}}),
+        (ruff(), {"ruff": {}}),
     )
     for constructed, payload in cases:
         assert constructed == Check(payload)

@@ -29,6 +29,14 @@ records the result for the next iteration.
 > cleanup, and guarded physical-line range actions with a canonical read-only
 > range hash.
 
+> [!NOTE]
+> The current development branch also contains unreleased work completed after
+> `0.1.0a3`: `search_context`, `read_symbol`, guarded `replace_symbol`, a fixed
+> Ruff F-only check, compact text and JSON AI log views, explicit Django warning
+> baselines, and owner-controlled project-check Python selection. These features
+> are available from the source branch and are not part of the immutable
+> `0.1.0a3` PyPI artifacts.
+
 ## Design goals
 
 - Keep every change local and explicitly initiated by the user.
@@ -123,6 +131,7 @@ initializing a workspace or reading protected generated files:
 patchshuttle capabilities
 patchshuttle schema
 patchshuttle explain replace_exact
+patchshuttle explain replace_symbol
 patchshuttle explain replace_range
 patchshuttle explain hash_range
 patchshuttle explain apply_diff
@@ -264,9 +273,14 @@ checks:
       modules: [email_client.views, email_client.urls]
 ```
 
-PatchShuttle runs the current interpreter with `manage.py shell -c` and
-internally generated import code. The YAML accepts only bounded dotted module
-identifiers, not an arbitrary expression or shell command.
+PatchShuttle runs the owner-selected project interpreter with
+`manage.py shell -c` and internally generated import code. The optional local
+`[execution] python_executable` value in `patches/patchshuttle.toml` may be an
+absolute path or a path relative to the workspace root. When it is omitted,
+PatchShuttle preserves the current `sys.executable` behavior. Jobs cannot set
+or override the interpreter, and PatchShuttle does not auto-detect a virtual
+environment. The YAML accepts only bounded dotted module identifiers, not an
+arbitrary expression or shell command.
 
 Load a job from disk with the same validation contract:
 
@@ -294,10 +308,11 @@ patchshuttle plan patches/examples/PATCH-EXAMPLE.psh.yaml
 patchshuttle plan patches/examples/PATCH-EXAMPLE.psh.yaml --diff
 ```
 
-The command displays the normalized job hash, sequential action dispositions,
-files and directories that would be created or modified, requested checks,
-Python formatting scope, a per-file isort/Black decision matrix, optional HTML
-lint scope, successful quality preflight records, protected-path result, backup
+The command displays the normalized job hash, effective project Python
+interpreter when one is used, sequential action dispositions, files and
+directories that would be created or modified, requested checks, Python
+formatting scope, a per-file isort/Black decision matrix, optional HTML lint
+scope, successful quality preflight records, protected-path result, backup
 destination template, rollback policy, and whether later execution will
 require confirmation.
 `--diff` also prints a bounded unified preview of the final resolved bytes
@@ -415,12 +430,18 @@ locations, the archived job copy, initial check results, formatter results,
 retained formatted-file states, final check results, audit observations, and a
 workspace comparison where applicable.
 
-An audit executes `tree`, `read`, literal `search`, `find_files`, `file_info`,
-SHA-256 `hash`, canonical `hash_range`, `git_status`, and `environment`.
-Traversal, file reads, match counts, and recorded output are bounded by local
-policy. Protected and ignored paths are skipped, source content appears only
-when explicitly requested by a `read` or `search` action, and a before/after
-inventory verifies that the audit did not modify the workspace.
+An audit executes `tree`, `read`, literal `search`, bounded `search_context`,
+Python `read_symbol`, `find_files`, `file_info`, SHA-256 `hash`, canonical
+`hash_range`, `git_status`, and `environment`. Traversal, file reads, match
+counts, and recorded output are bounded by local policy. Protected and ignored
+paths are skipped, source content appears only when explicitly requested by a
+content-reading audit action, and a before/after inventory verifies that the
+audit did not modify the workspace.
+
+`search_context` reports bounded physical-line windows around literal matches.
+`read_symbol` parses Python source without importing it, resolves exactly one
+class, function, method, or nested symbol, includes its decorators, and reports
+the canonical source range and SHA-256 used by `replace_symbol`.
 
 A verify job runs its controlled checks once, does not create a backup or run
 formatters, and compares the workspace before and after. A successful check
@@ -429,9 +450,9 @@ project checks can have external effects, PatchShuttle reports but does not
 automatically undo those changes.
 
 A patch plan may contain `create_directory`, `create_file`, `replace_exact`,
-`insert_before`, `insert_after`, `delete_exact`, `replace_range`,
-`delete_range`, `insert_at_line`, or `apply_diff` actions and applies the final
-bytes already computed by the planner.
+`replace_symbol`, `insert_before`, `insert_after`, `delete_exact`,
+`replace_range`, `delete_range`, `insert_at_line`, or `apply_diff` actions and
+applies the final bytes already computed by the planner.
 
 The optional line-range actions are strict guarded operations for cases where
 a current audit already established an exact physical range. Lines are 1-based
@@ -441,6 +462,13 @@ pass against the sequential in-memory plan. Canonical guards use LF newlines
 and SHA-256 over UTF-8 bytes. PatchShuttle never fuzzes, relocates, partially
 applies, or automatically shifts a stale range. Use an audit `hash_range` when
 a digest is more compact than repeating a large old block.
+
+A `replace_symbol` action names a dotted Python symbol, supplies the canonical
+SHA-256 returned by `read_symbol`, and provides complete replacement source.
+Planning resolves the symbol against the current sequential simulated file,
+rejects missing, duplicate, syntactically invalid, or stale targets, and does
+not use fuzzy relocation or automatic line shifting. Exact desired symbol
+content is an idempotent `NO_CHANGE`.
 
 For a supported plan, the implemented sequence is:
 
@@ -497,18 +525,21 @@ overwritten. Rollback validates retained originals before restoring them,
 refuses to follow symbolic links or remove foreign non-empty directories, and
 does not claim success when a tracked path cannot be restored.
 
-The internal check runner supports `compileall`, `pytest`, `unittest`, Django
-checks and tests, plain validated module imports, Django-aware validated module
-imports through `manage.py shell -c`, and locally configured profiles. It
-inherits the current process environment because project checks execute project
-code and PatchShuttle is not an operating-system sandbox. PatchShuttle overrides
-`PYTHONPYCACHEPREFIX` with a fresh temporary directory for each check and
-removes that directory afterward, keeping ordinary generated Python bytecode
-outside the workspace. A defensive cache ledger also handles `.pyc` files
-created inside newly added packages despite that override. Formatter order is
-fixed to isort then Black for protocol 1; local exact-path exclusions are
-resolved separately for each tool. Non-Python jobs skip formatting and do not
-repeat checks. Optional djLint uses a locally selected template profile,
+The internal check runner supports the fixed `ruff: {}` F-only check,
+`compileall`, `pytest`, `unittest`, Django checks and tests, plain validated
+module imports, Django-aware validated module imports through
+`manage.py shell -c`, and locally configured profiles. Ruff receives only the
+immutable ordered Python scope derived from current non-no-change patch actions;
+a job cannot supply paths, rules, fixes, or arbitrary Ruff arguments.
+Project checks inherit the current process environment because they execute
+project code and PatchShuttle is not an operating-system sandbox. PatchShuttle
+overrides `PYTHONPYCACHEPREFIX` with a fresh temporary directory for each check
+and removes that directory afterward, keeping ordinary generated Python
+bytecode outside the workspace. A defensive cache ledger also handles `.pyc`
+files created inside newly added packages despite that override. Formatter
+order is fixed to isort then Black for protocol 1; local exact-path exclusions
+are resolved separately for each tool. Non-Python jobs skip formatting and do
+not repeat checks. Optional djLint uses a locally selected template profile,
 targets only changed `.html` files, never reformats them, and triggers the same
 rollback path on failure. It reads content through stdin from an isolated
 temporary configuration root, so project djLint configuration cannot weaken
@@ -567,16 +598,38 @@ project changes, backup, job archive, or registry update. An explicitly
 declined reviewed plan continues to use the full job log and exact failed-job
 archive with result `USER_DECLINED`.
 
-Find the latest upload-friendly log:
+Django system-check warnings can use an explicit project-local baseline:
+
+```bash
+patchshuttle warnings
+patchshuttle warnings --add urls.W005
+patchshuttle warnings --remove urls.W005
+```
+
+Only explicit W-class IDs are accepted. A `django_check` retains its normal
+exit code and full log output while adding `known_warnings`, `new_warnings`,
+and complete new-warning details. If captured output is truncated,
+classification is reported as incomplete. Existing workspaces without the
+protected baseline file start with an empty baseline; `patchshuttle init`
+creates the missing scaffold file without overwriting existing state.
+Find or compactly render the latest upload-friendly log:
 
 ```bash
 patchshuttle logs --last
+patchshuttle logs --last --ai
+patchshuttle logs --last --ai-json
 ```
 
-This selects the newest recorded run, snapshot, handoff, or failure-attempt
-log. Commands that intentionally produce no artifact, including successful
-`validate`, successful `plan`, `version`, `capabilities`, `schema`, and
-`explain`, do not replace it.
+The default prints the path. `--ai` prints a bounded deterministic text view,
+while `--ai-json` prints the same selected data as compact JSON. These modes
+read the already stored log, preserve it unchanged, and never execute project
+code. They are mutually exclusive and retain useful audit outputs and failed
+check diagnostics within explicit bounds.
+
+The command selects the newest recorded run, snapshot, handoff, or
+failure-attempt log. Commands that intentionally produce no artifact,
+including successful `validate`, successful `plan`, `version`,
+`capabilities`, `schema`, and `explain`, do not replace it.
 
 Inspect all registered jobs or one job ID:
 

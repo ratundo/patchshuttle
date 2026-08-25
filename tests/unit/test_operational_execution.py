@@ -106,6 +106,45 @@ def test_success_records_exact_source_log_registry_and_public_paths(
     )
 
 
+def test_execute_plan_applies_replace_symbol_through_change_transaction(
+    workspace: Workspace,
+) -> None:
+    target = workspace.root / "module.py"
+    target.write_text("def run():\n    return 1\n", encoding="utf-8")
+    job = Job(
+        protocol=1,
+        project_id=PROJECT_ID,
+        id="PATCH-REPLACE-SYMBOL-EXECUTION",
+        kind="patch",
+        actions=[
+            {
+                "replace_symbol": {
+                    "path": "module.py",
+                    "symbol": "run",
+                    "expected_sha256": (
+                        "a40c04aa22c369fa354406d31613f110"
+                        "878d800e33ddd428e124b513762b3635"
+                    ),
+                    "new_content": "def run():\n    return 2\n",
+                }
+            }
+        ],
+        checks=[{"compileall": {"paths": ["module.py"]}}],
+    )
+    plan = plan_job(job, workspace)
+
+    result = execute_plan(plan, approved=True)
+
+    assert result.status is RunStatus.COMPLETED
+    assert target.read_text(encoding="utf-8") == "def run():\n    return 2\n"
+    assert [path.as_posix() for path in result.modified_files] == ["module.py"]
+    assert result.backup_path is not None
+    assert result.log_path is not None
+    log = result.log_path.read_text(encoding="utf-8")
+    assert "action_type: replace_symbol" in log
+    assert "result: COMPLETED" in log
+
+
 def test_repeated_completed_plan_returns_already_applied_without_transaction(
     workspace: Workspace,
     monkeypatch: pytest.MonkeyPatch,

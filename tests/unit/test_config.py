@@ -26,6 +26,7 @@ def test_default_configuration_round_trip() -> None:
 
     assert 'project_id = "PSH-8F41C2A73D905E61"' in text
     assert 'origin = "existing"' in text
+    assert '# python_executable = "path/to/project-python"' in text
     assert "max_job_bytes = 2000000" in text
     assert "max_inventory_entries = 50000" in text
     assert "max_inventory_bytes = 1000000000" in text
@@ -43,6 +44,7 @@ def test_load_config_returns_typed_defaults(tmp_path: Path) -> None:
     assert config.project.project_id == PROJECT_ID
     assert config.project.origin is ProjectOrigin.NEW
     assert config.project.protected_paths[0] == ".git/**"
+    assert config.execution.python_executable is None
     assert config.execution.confirm is True
     assert config.execution.max_job_bytes == 2_000_000
     assert config.execution.max_inventory_entries == 50_000

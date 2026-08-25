@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 from patchshuttle._line_ranges import select_line_range
 from patchshuttle._process import ProcessCommand, ProcessStatus, run_process
+from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle._version import __version__
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, PolicyError
 from patchshuttle.inventory import (
@@ -151,6 +152,10 @@ def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
         return AuditStatus.COMPLETED, _read(plan, parameters)
     if name == "search":
         return AuditStatus.COMPLETED, _search(plan, parameters)
+    if name == "search_context":
+        return AuditStatus.COMPLETED, _search_context(plan, parameters)
+    if name == "read_symbol":
+        return AuditStatus.COMPLETED, _read_symbol(plan, parameters)
     if name == "find_files":
         return AuditStatus.COMPLETED, _find_files(plan, parameters)
     if name == "file_info":
@@ -248,6 +253,124 @@ def _search(plan: Plan, parameters) -> str:
     if len(results) >= parameters.max_results:
         header.append("result_limit_reached: true")
     return "\n".join((*header, *results))
+
+
+def _search_context(plan: Plan, parameters) -> str:
+    policy = Policy(plan.workspace)
+    root = policy.resolve(parameters.path, allow_root=True)
+    files = _audit_files(plan, root, glob=parameters.glob)
+    needle = (
+        parameters.text if parameters.case_sensitive else parameters.text.casefold()
+    )
+    sections: list[str] = []
+    matches = 0
+    skipped_binary = 0
+    limit_reached = False
+    for path, target in files:
+        try:
+            _, text = _decode_text(
+                _read_regular_file(plan, target),
+                path=path,
+            )
+        except (UnicodeError, ValueError):
+            skipped_binary += 1
+            continue
+        lines = text.splitlines()
+        for number, line in enumerate(lines, start=1):
+            compared = line if parameters.case_sensitive else line.casefold()
+            if needle not in compared:
+                continue
+            matches += 1
+            start = max(1, number - parameters.before)
+            end = min(len(lines), number + parameters.after)
+            sections.extend(
+                (
+                    "---",
+                    f"match: {matches}",
+                    f"path: {path.as_posix()}",
+                    f"line: {number}",
+                    f"context_start_line: {start}",
+                    f"context_end_line: {end}",
+                    *(
+                        (">" if line_number == number else " ")
+                        + f"{line_number:>6}: {lines[line_number - 1]}"
+                        for line_number in range(start, end + 1)
+                    ),
+                )
+            )
+            if matches >= parameters.max_results:
+                limit_reached = True
+                break
+        if limit_reached:
+            break
+    header = [
+        f"literal: {parameters.text}",
+        f"case_sensitive: {str(parameters.case_sensitive).lower()}",
+        f"before: {parameters.before}",
+        f"after: {parameters.after}",
+        f"matches: {matches}",
+        f"binary_files_skipped: {skipped_binary}",
+    ]
+    if limit_reached:
+        header.append("result_limit_reached: true")
+    return "\n".join((*header, *sections))
+
+
+def _read_symbol(plan: Plan, parameters) -> str:
+    target = Policy(plan.workspace).resolve(parameters.path)
+    raw = _read_regular_file(plan, target)
+    encoding, text = _decode_text(raw, path=target.relative)
+    try:
+        source = find_symbol_source(
+            text,
+            parameters.symbol,
+            filename=target.relative.as_posix(),
+        )
+    except SyntaxError as exc:
+        raise ExecutionError(
+            ExecutionErrorCode.ACTION_FAILED,
+            "Python source could not be parsed for read_symbol",
+            path=target.relative.as_posix(),
+        ) from exc
+    except ValueError as exc:  # pragma: no cover - Python 3.10+ AST contract
+        raise ExecutionError(
+            ExecutionErrorCode.ACTION_FAILED,
+            str(exc),
+            path=target.relative.as_posix(),
+        ) from exc
+    if source is None:
+        raise ExecutionError(
+            ExecutionErrorCode.ACTION_FAILED,
+            f"Python symbol {parameters.symbol!r} did not resolve exactly once",
+            path=target.relative.as_posix(),
+        )
+    selected = source.selected
+    lines = text.splitlines()
+    output = "\n".join(
+        (
+            f"path: {target.relative.as_posix()}",
+            f"encoding: {encoding}",
+            f"symbol: {parameters.symbol}",
+            f"kind: {source.kind}",
+            f"start_line: {selected.start_line}",
+            f"end_line: {selected.end_line}",
+            "canonical_encoding: utf-8",
+            "canonical_newline: lf",
+            f"sha256: {selected.sha256}",
+            *(
+                f"{number:>6}: {lines[number - 1]}"
+                for number in range(
+                    selected.start_line,
+                    selected.end_line + 1,
+                )
+            ),
+        )
+    )
+    limit = (
+        parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes
+    )
+    bounded, _ = _bounded_output(output, limit)
+    return bounded
 
 
 def _find_files(plan: Plan, parameters) -> str:
@@ -371,6 +494,7 @@ def _environment(plan: Plan) -> str:
         "pytest": _package_version("pytest"),
         "isort": _package_version("isort"),
         "black": _package_version("black"),
+        "ruff": _package_version("ruff"),
     }
     return "\n".join(f"{key}: {value}" for key, value in values.items())
 
