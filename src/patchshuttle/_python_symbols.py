@@ -40,11 +40,6 @@ def find_symbol_source(
             return None
         current = matches[0]
 
-    if not isinstance(
-        current,
-        (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
-    ):
-        return None
     decorators = current.decorator_list
     start_line = min((current.lineno, *(item.lineno for item in decorators)))
     end_line = current.end_lineno

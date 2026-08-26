@@ -308,10 +308,10 @@ def warnings_command(
         else:
             baseline = load_warning_baseline(workspace)
         rendered = render_warning_baseline(baseline, updated=updated)
-    except ValueError as error:
-        raise click.UsageError(str(error)) from error
     except WorkspaceError as error:
         _fail_workspace(error, failure_prefix="WARNINGS_FAILED")
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
     except ExecutionError as error:
         click.echo(f"WARNINGS_FAILED {error}", err=True)
         raise click.exceptions.Exit(execution_exit_code(error.code)) from error

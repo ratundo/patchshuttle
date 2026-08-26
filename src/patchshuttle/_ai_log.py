@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import cast
 
 _SECTION_PATTERN = re.compile(r"^=== ([A-Z0-9_]+) ===$")
 _FIELD_PATTERN = re.compile(r"^([a-z][a-z0-9_]*):(.*)$")
@@ -123,15 +124,14 @@ def summarize_ai_log(text: str, *, source: str) -> dict[str, object]:
     )
     _include_selected(payload, "job", sections.get("JOB"), _JOB_FIELDS)
     if "job" not in payload and "attempt" in payload:
-        attempt = payload["attempt"]
-        if isinstance(attempt, dict):
-            job = {
-                key: attempt[key]
-                for key in ("job_id", "job_hash", "kind")
-                if key in attempt
-            }
-            if job:
-                payload["job"] = job
+        attempt = cast(dict[str, object], payload["attempt"])
+        job = {
+            key: attempt[key]
+            for key in ("job_id", "job_hash", "kind")
+            if key in attempt
+        }
+        if job:
+            payload["job"] = job
     _include_selected(payload, "plan", sections.get("PLAN"), _PLAN_FIELDS)
 
     audit = _parse_records(sections.get("AUDIT"), "action_id", _ACTION_FIELDS)
@@ -236,9 +236,8 @@ def _parse_fields(value: str) -> dict[str, object]:
                 index = cursor - 1
         decoded = _decode(raw)
         if key == "change":
-            changes = fields.setdefault("change", [])
-            if isinstance(changes, list):
-                changes.append(decoded)
+            changes = cast(list[object], fields.setdefault("change", []))
+            changes.append(decoded)
         else:
             fields[key] = decoded
         index += 1
