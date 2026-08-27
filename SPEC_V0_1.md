@@ -13,20 +13,17 @@
 > on 2026-08-16, followed by successful TestPyPI qualification, production
 > PyPI publication, and a clean installation smoke test. A recorded ChatGPT
 > end-to-end workflow passed on Windows 11 with Python 3.14.2 on 2026-08-17.
-> Version `0.1.0a3` is a published alpha release, not stable `0.1.0`.
-> Compared with published `0.1.0a2`, it adds AI-facing mismatch diagnostics,
-> resolved diff previews, Python formatter preflight, opt-in changed-HTML
-> linting, early failure logs, explicit workspace routing, installed-contract
-> self-documentation, per-file formatter policy, Django-aware import checks,
-> defensive runtime-cache cleanup, and guarded physical-line range actions.
-> The feature-complete source passed 834 local tests on Linux/Python 3.12 with
-> one environment-only skip, 100% statement and branch coverage, release
-> artifact validation, `twine check`, and a clean wheel smoke test. The final
-> versioned commit `06f3125aacd92ae32a832d34d86246a97fdc74f7` passed the
-> required hosted Windows/Ubuntu matrix, TestPyPI qualification, production
-> PyPI publication, and a clean Windows CPython 3.14 installation on
-> 2026-08-23. TestPyPI and production PyPI contain byte-identical `0.1.0a3`
-> distributions.
+> Version `0.1.0a4` is a published alpha release, not stable `0.1.0`.
+> It retains the published `0.1.0a3` workflow and adds bounded Python source
+> discovery, compact structure output, owner-controlled project-check Python
+> selection, evidence-only discovery telemetry, and owner-controlled Python
+> architecture ratchets. The immutable artifacts were built from commit
+> `f0f6188b6e81727401152023d701f0e065fcc481` and passed the required hosted
+> Windows/Ubuntu matrix, TestPyPI qualification, production PyPI Trusted
+> Publishing, and a clean Windows CPython 3.14 installation on 2026-08-27.
+> TestPyPI and production PyPI contain byte-identical `0.1.0a4`
+> distributions; exact workflow links, sizes, and SHA-256 hashes are recorded
+> in `docs/RELEASE.md`.
 >
 > This document defines the target behavior of PatchShuttle v0.1. The README
 > identifies the currently implemented subset; all other features remain
@@ -1930,7 +1927,7 @@ has been tested through a documented end-to-end scenario.
   TestPyPI and production Trusted Publishing, and a clean production-index
   installation on 2026-08-23.
 
-### Unreleased after `0.1.0a3`
+### `0.1.0a4`
 
 - bounded `search_context` and decorator-aware Python `read_symbol` audits;
 - guarded `replace_symbol` planning and transactional execution;
@@ -1952,6 +1949,14 @@ has been tested through a documented end-to-end scenario.
   the standard-library AST, with no project-code execution, semantic resolution,
   cache, persistence, inferred patch scope, or symbol-index implementation verdict.
 
+- opt-in compact `python_structure` output that retains bounded navigational
+  identities, source ranges, parse errors, and limit signals;
+- owner-controlled `modular-monolith` / `package-by-feature` architecture
+  ratchets with bounded stable `ARCH` findings;
+- immutable artifacts from commit
+  `f0f6188b6e81727401152023d701f0e065fcc481` passed final `main` and tag CI,
+  TestPyPI and production Trusted Publishing, and a clean production-index
+  Windows CPython 3.14 installation on 2026-08-27.
 ### `0.1.0b1`
 
 - AI guide and handoff;
@@ -2008,7 +2013,7 @@ PatchShuttle v0.1.0 is ready when all of the following are demonstrated:
 
 ### Current qualification record
 
-As of the completed `0.1.0a3` qualification on 2026-08-23, criteria 1 through
+As of the completed `0.1.0a4` qualification on 2026-08-27, criteria 1 through
 18 above have explicit evidence for that published alpha release: local
 implementation and test evidence for criteria 2 through 16, plus independent
 hosted CI, TestPyPI, production PyPI, and clean post-release installation

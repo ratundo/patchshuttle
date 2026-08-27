@@ -1,6 +1,6 @@
 # PatchShuttle release guide
 
-This guide records the immutable published `0.1.0a2` and `0.1.0a3` evidence and
+This guide records the immutable published `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` evidence and
 the staged qualification procedure for later releases. Do not publish a
 stable `0.1.0` release until every acceptance criterion in `SPEC_V0_1.md` has
 passed and the stable release is approved.
@@ -98,6 +98,44 @@ The **Tested with ChatGPT** statement remains scoped to the separately recorded
 `0.1.0a2` end-to-end workflow above; this release record does not silently
 extend that product claim to `0.1.0a3`.
 
+## 0.2. Recorded `0.1.0a4` qualification
+
+The immutable `0.1.0a4` artifacts were built from commit
+`f0f6188b6e81727401152023d701f0e065fcc481`. The annotated
+`v0.1.0a4` tag resolves to the same commit. The release adds bounded
+Python source discovery, compact structure output, owner-controlled
+project-check Python selection, evidence-only discovery telemetry, and
+owner-controlled Python architecture ratchets.
+
+The release passed these external gates on 2026-08-27:
+
+- [final release-candidate CI on `main`](https://github.com/ratundo/patchshuttle/actions/runs/33089001064);
+- [TestPyPI publication](https://github.com/ratundo/patchshuttle/actions/runs/33094686124);
+- [CI for tag `v0.1.0a4`](https://github.com/ratundo/patchshuttle/actions/runs/33095708487);
+- [GitHub `v0.1.0a4` pre-release](https://github.com/ratundo/patchshuttle/releases/tag/v0.1.0a4);
+- [production PyPI Trusted Publishing](https://github.com/ratundo/patchshuttle/actions/runs/33096689962);
+- [production PyPI release](https://pypi.org/project/patchshuttle/0.1.0a4/)
+  and a clean post-release installation smoke test.
+
+TestPyPI and production PyPI received byte-identical distributions:
+
+- wheel `patchshuttle-0.1.0a4-py3-none-any.whl`, 167610 bytes,
+  SHA-256:
+  `b5a372b3879ea7382903556cb041ff9233d5e44624da28a5d1a2d8a2bdd2c832`;
+- source archive `patchshuttle-0.1.0a4.tar.gz`, 296869 bytes,
+  SHA-256:
+  `14585ad971f374da2466807e876c4742acd140a069ae2ab159afccec297ad05c`.
+
+A separate clean Windows CPython 3.14 temporary environment installed
+`patchshuttle[html]==0.1.0a4` from production PyPI with
+`--no-cache-dir`. `patchshuttle version` reported
+`PatchShuttle 0.1.0a4`; `patchshuttle capabilities` reported
+`patchshuttle_version: 0.1.0a4` and `protocol: 1`.
+
+The **Tested with ChatGPT** statement remains scoped to the separately
+recorded `0.1.0a2` end-to-end workflow above. This release record does
+not extend that claim to every action, AI model, project, or intentional
+failure and rollback path.
 ## 1. Local release gate
 
 From a clean repository root, use Python 3.12 and start with an empty `dist/`
@@ -119,8 +157,8 @@ python tools/wheel_smoke.py dist/patchshuttle-<VERSION>-py3-none-any.whl --versi
 
 `release_checks.py` requires exactly one wheel and one source archive for the
 source version and writes `dist/SHA256SUMS`. Replace `<VERSION>` with the exact
-source version under qualification. For the recorded qualification above it
-was `0.1.0a3`. Do not reuse an immutable published version for a future upload.
+source version under qualification. For the most recent recorded qualification it
+was `0.1.0a4`. Do not reuse an immutable published version for a future upload.
 
 During a source-version transition, metadata in an already-installed editable
 environment may still report the previous version until the package is
@@ -128,11 +166,11 @@ reinstalled. Source-tree tests validate the imported source version. The build,
 `release_checks.py`, and clean-wheel smoke test are the authoritative metadata
 alignment gates for the new distributions.
 
-For the next alpha, the local and hosted suites must also retain explicit
-coverage for formatter baseline-versus-planned classification, per-tool local
-exclusions, `django_import_check`, and rollback after runtime `.pyc` creation.
-The plan and run logs must show the resolved formatter decision for each
-changed Python path.
+Future release candidates must retain explicit coverage for formatter
+baseline-versus-planned classification, per-tool local exclusions,
+`django_import_check`, rollback after runtime `.pyc` creation, bounded Python
+structure discovery, and architecture-ratchet evaluation. Plan and run logs must
+keep exposing resolved formatter and architecture decisions.
 
 ## 2. Publish the repository and run CI
 

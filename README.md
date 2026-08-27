@@ -17,9 +17,9 @@ records the result for the next iteration.
 > Trusted Publishing workflows are implemented. Every versioned release must
 > pass its own local qualification, GitHub-hosted Windows/Ubuntu matrix,
 > TestPyPI installation, production publication, and post-release smoke gates.
-> The immutable `0.1.0a2` and `0.1.0a3` qualification evidence, plus the
-> separately scoped `0.1.0a2` ChatGPT end-to-end workflow, are retained in
-> [docs/RELEASE.md](docs/RELEASE.md).
+> The immutable `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` qualification
+> evidence, plus the separately scoped `0.1.0a2` ChatGPT end-to-end
+> workflow, are retained in [docs/RELEASE.md](docs/RELEASE.md).
 
 > [!NOTE]
 > Compared with `0.1.0a2`, version `0.1.0a3` adds AI-facing planner diagnostics,
@@ -30,14 +30,13 @@ records the result for the next iteration.
 > range hash.
 
 > [!NOTE]
-> The current development branch also contains unreleased work completed after
-> `0.1.0a3`: `search_context`, `read_symbol`, guarded `replace_symbol`, a fixed
-> Ruff F-only check, compact text and JSON AI log views, explicit Django warning
-> baselines, owner-controlled project-check Python selection, evidence-only
-> Python discovery telemetry, expanded Python secret redaction, nested
-> dependency-environment exclusions, and bounded declaration-only
-> `python_structure` discovery. These features are available from the source
-> branch and are not part of the immutable `0.1.0a3` PyPI artifacts.
+> Version `0.1.0a4` adds `search_context`, `read_symbol`, guarded
+> `replace_symbol`, the fixed Ruff F-only check, compact AI log views, Django
+> warning baselines, owner-controlled project-check Python selection,
+> evidence-only Python discovery telemetry, expanded redaction, bounded
+> declaration-only `python_structure` discovery with compact output, and
+> owner-controlled architecture ratchets. These features are included in the
+> immutable `0.1.0a4` PyPI artifacts.
 
 ## Design goals
 
@@ -837,9 +836,10 @@ python tools/release_checks.py dist
 python tools/wheel_smoke.py dist/patchshuttle-0.1.0a4-py3-none-any.whl --version 0.1.0a4
 ```
 
-The `0.1.0a2` and `0.1.0a3` alpha releases each passed the required Ubuntu and
-Windows compatibility matrix, TestPyPI qualification, production PyPI Trusted
-Publishing, and a clean post-release installation. Their exact release and
+The `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` alpha releases each passed the
+required Ubuntu and Windows compatibility matrix, TestPyPI qualification,
+production PyPI Trusted Publishing, and a clean post-release installation.
+Their exact release and
 workflow links and artifact hashes, together with the separately scoped
 `0.1.0a2` ChatGPT end-to-end evidence, are recorded in
 [docs/RELEASE.md](docs/RELEASE.md). Follow that guide in order for every future
@@ -892,6 +892,7 @@ confirmation, backup, or project checks.
 This is deliberately a structural guard. It does not infer feature boundaries,
 build dependency or call graphs, detect cycles, judge semantic responsibility,
 reorganize files, or change the patch scope selected by the AI.
+
 ## Manual workflow
 
 The implemented local cycle is:
