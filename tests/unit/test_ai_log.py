@@ -40,6 +40,24 @@ output_begin
 def run():
     return 1
 output_end
+=== PYTHON_DISCOVERY_EVALUATION ===
+applicable: true
+evidence_scope: CURRENT_JOB
+evidence_status: COLLECTED
+index_assessment: NOT_EVALUATED
+explicit_python_paths: ["src/example.py"]
+python_read_actions: 1
+python_read_symbol_actions: 0
+python_search_actions: 0
+unclassified_search_actions: 0
+python_find_files_actions: 0
+python_audit_output_bytes: 23
+python_audit_output_lines: 2
+declared_python_text_actions: 0
+declared_python_symbol_actions: 0
+declared_python_line_actions: 0
+failure_signal: NOT_APPLICABLE
+reason_codes: ["PYTHON_FILE_READ_USED"]
 === INITIAL_CHECKS ===
 NOT_APPLICABLE
 === FINAL_CHECKS ===
@@ -97,6 +115,25 @@ error:
   expected one exact anchor
   second line
 
+=== PYTHON_DISCOVERY_EVALUATION ===
+applicable: true
+evidence_scope: CURRENT_JOB
+evidence_status: COLLECTED
+index_assessment: NOT_EVALUATED
+explicit_python_paths: ["src/example.py"]
+python_read_actions: 0
+python_read_symbol_actions: 0
+python_search_actions: 0
+unclassified_search_actions: 0
+python_find_files_actions: 0
+python_audit_output_bytes: 0
+python_audit_output_lines: 0
+declared_python_text_actions: 1
+declared_python_symbol_actions: 0
+declared_python_line_actions: 0
+failure_signal: TEXT_TARGETING_FAILURE
+reason_codes: ["PYTHON_TEXT_TARGETING_USED", "TEXT_TARGETING_FAILURE"]
+
 === SUMMARY ===
 result: PLAN_FAILED
 failure_stage: PLANNING
@@ -149,6 +186,25 @@ def test_run_log_compacts_audit_output_and_stable_fields() -> None:
             "output": "def run():\n    return 1",
         }
     ]
+    assert payload["python_discovery_evaluation"] == {
+        "applicable": True,
+        "evidence_scope": "CURRENT_JOB",
+        "evidence_status": "COLLECTED",
+        "index_assessment": "NOT_EVALUATED",
+        "explicit_python_paths": ["src/example.py"],
+        "python_read_actions": 1,
+        "python_read_symbol_actions": 0,
+        "python_search_actions": 0,
+        "unclassified_search_actions": 0,
+        "python_find_files_actions": 0,
+        "python_audit_output_bytes": 23,
+        "python_audit_output_lines": 2,
+        "declared_python_text_actions": 0,
+        "declared_python_symbol_actions": 0,
+        "declared_python_line_actions": 0,
+        "failure_signal": "NOT_APPLICABLE",
+        "reason_codes": ["PYTHON_FILE_READ_USED"],
+    }
     assert payload["summary"]["result"] == "COMPLETED"
     rendered = render_ai_log(
         FULL_LOG,
@@ -171,6 +227,12 @@ def test_attempt_log_renders_equivalent_compact_json() -> None:
     payload = json.loads(rendered)
     assert payload["attempt"]["command"] == "plan"
     assert payload["attempt"]["error"] == ("expected one exact anchor\nsecond line")
+    assert payload["python_discovery_evaluation"]["failure_signal"] == (
+        "TEXT_TARGETING_FAILURE"
+    )
+    assert payload["python_discovery_evaluation"]["index_assessment"] == (
+        "NOT_EVALUATED"
+    )
     assert payload["summary"]["result"] == "PLAN_FAILED"
     assert payload["handoff"]["failed_item"] == "action_001"
     assert rendered.endswith("\n")

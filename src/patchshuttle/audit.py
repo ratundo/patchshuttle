@@ -145,6 +145,13 @@ def execute_audit_locked(plan: Plan) -> AuditRunResult:
     )
 
 
+from patchshuttle._python_structure import (
+    PythonFileStructure,
+    render_python_structure,
+    scan_python_structure,
+)
+
+
 def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
     if name == "tree":
         return AuditStatus.COMPLETED, _tree(plan, parameters)
@@ -156,6 +163,8 @@ def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
         return AuditStatus.COMPLETED, _search_context(plan, parameters)
     if name == "read_symbol":
         return AuditStatus.COMPLETED, _read_symbol(plan, parameters)
+    if name == "python_structure":
+        return AuditStatus.COMPLETED, _python_structure(plan, parameters)
     if name == "find_files":
         return AuditStatus.COMPLETED, _find_files(plan, parameters)
     if name == "file_info":
@@ -371,6 +380,63 @@ def _read_symbol(plan: Plan, parameters) -> str:
     )
     bounded, _ = _bounded_output(output, limit)
     return bounded
+
+
+def _python_structure(plan: Plan, parameters) -> str:
+    policy = Policy(plan.workspace)
+    root = policy.resolve(parameters.path, allow_root=True)
+    candidates = _audit_files(plan, root, glob="*.py")
+    selected = candidates[: parameters.max_files]
+    structures: list[PythonFileStructure] = []
+    parse_errors: list[str] = []
+    for path, target in selected:
+        raw = _read_regular_file(plan, target)
+        _, text = _decode_text(raw, path=target.relative)
+        try:
+            structures.append(scan_python_structure(text, filename=path.as_posix()))
+        except SyntaxError as exc:
+            parse_errors.append(
+                f"parse_error: {path.as_posix()} "
+                f"line={exc.lineno} offset={exc.offset}"
+            )
+
+    symbols_available = sum(len(item.symbols) for item in structures)
+    remaining = parameters.max_symbols
+    visible: list[PythonFileStructure] = []
+    for item in structures:
+        symbols = item.symbols[:remaining]
+        visible.append(
+            PythonFileStructure(
+                file=item.file,
+                imports=item.imports,
+                symbols=symbols,
+            )
+        )
+        remaining = max(0, remaining - len(symbols))
+
+    symbols_reported = sum(len(item.symbols) for item in visible)
+    collection_schema = (
+        "patchshuttle.python_structure_collection.compact.v1"
+        if parameters.compact
+        else "patchshuttle.python_structure_collection.v1"
+    )
+    lines = [
+        f"schema: {collection_schema}",
+        f"path: {parameters.path}",
+        "glob: *.py",
+        f"files_considered: {len(selected)}",
+        f"files_parsed: {len(structures)}",
+        f"parse_errors: {len(parse_errors)}",
+        f"imports_reported: {sum(len(item.imports) for item in structures)}",
+        f"symbols_available: {symbols_available}",
+        f"symbols_reported: {symbols_reported}",
+        "file_limit_reached: " + str(len(candidates) > len(selected)).lower(),
+        "symbol_limit_reached: " + str(symbols_available > symbols_reported).lower(),
+        *parse_errors,
+    ]
+    for item in visible:
+        lines.extend(("", render_python_structure(item, compact=parameters.compact)))
+    return "\n".join(lines)
 
 
 def _find_files(plan: Plan, parameters) -> str:

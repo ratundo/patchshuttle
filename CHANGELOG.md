@@ -5,7 +5,26 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased
 
+## 0.1.0a4 - 2026-08-27
+
+Third alpha release, focused on bounded Python source discovery, compact
+structure output, and owner-controlled architecture ratchets.
+
 ### Added
+- Owner-controlled Python architecture ratchets evaluate the planner's virtual
+  file state before execution. Defaults warn at 500 lines per module, 15 direct
+  Python files per package, five new Python files, or one new package; hard
+  limits are 1000, 25, 10, and three respectively. Stable bounded `ARCH` findings
+  appear in plans and logs, while unchanged or improving legacy violations remain
+  allowed.
+
+- Read-only `python_structure` uses the standard-library AST to report a
+  bounded declaration map for one Python file or directory, including
+  imports, classes, functions, methods, parameters, decorators, bases,
+  source ranges, parse errors, and explicit file and symbol limit signals,
+  without importing or executing project code. Its opt-in `compact: true`
+  mode retains navigational symbol identities and ranges while omitting
+  detailed import and declaration metadata; full output remains the default.
 
 - Read-only `search_context` returns bounded physical-line context around
   literal matches, and `read_symbol` returns one exactly resolved
@@ -19,6 +38,21 @@ uses semantic versioning, including Python-compatible pre-release versions.
 - `logs --last --ai` and `logs --last --ai-json` render bounded
   deterministic text and JSON views of the newest stored log without
   changing it or executing project code.
+- Run and early-failure logs include evidence-only
+  `PYTHON_DISCOVERY_EVALUATION` telemetry for the current job. It records
+  explicit Python paths, audit action/output volume, targeting styles, and
+  relevant failure signals without estimating tokens or deciding whether a
+  project symbol index should be implemented.
+- Python discovery telemetry also aggregates reported file and search
+  matches, result-limit signals, and durations already present in bounded
+  audit results. Newly generated workspace policy covers conventional
+  `.venv`, `venv`, and `node_modules` trees at any depth; backup directories
+  remain owner-configured exclusions.
+- Best-effort whole-log redaction recognizes common sensitive Python
+  assignment identifiers, including prefixed passwords, API and access keys,
+  secret and private keys, tokens, and one-line `SECRET_KEY_FALLBACKS`
+  collections. Safe annotations, same-name references, and loader calls remain
+  visible; the redaction guarantee remains `NONE`.
 - Explicit project-local Django warning baselines classify known and new
   W-class system-check warnings without changing the check exit status.
 - Optional owner-controlled `[execution].python_executable` selects the

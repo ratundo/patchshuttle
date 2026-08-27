@@ -125,6 +125,21 @@ def test_default_protected_paths_include_roots_and_descendants(
 
 @pytest.mark.parametrize(
     "path",
+    (
+        "services/.venv/Lib/site-packages/package.py",
+        "services/venv/lib/python/site-packages/package.py",
+        "frontend/node_modules/package/index.js",
+    ),
+)
+def test_default_protected_paths_cover_nested_dependency_trees(
+    workspace: Workspace,
+    path: str,
+) -> None:
+    assert Policy(workspace).is_protected(path) is True
+
+
+@pytest.mark.parametrize(
+    "path",
     (".env.example", ".env.sample", ".env.template", "src/module.py"),
 )
 def test_protected_path_exceptions_override_configured_globs(
@@ -179,6 +194,21 @@ def test_patches_is_a_hard_block_that_config_exceptions_cannot_disable(
     ),
 )
 def test_default_ignored_globs_match_zero_or_more_path_segments(
+    workspace: Workspace,
+    path: str,
+) -> None:
+    assert Policy(workspace).is_ignored(path) is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "services/.venv/Lib/site-packages/package.py",
+        "services/venv/lib/python/site-packages/package.py",
+        "frontend/node_modules/package/index.js",
+    ),
+)
+def test_default_ignored_paths_skip_nested_dependency_trees(
     workspace: Workspace,
     path: str,
 ) -> None:

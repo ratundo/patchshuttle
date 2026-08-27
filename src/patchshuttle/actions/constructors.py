@@ -93,6 +93,25 @@ def read_symbol(
     return Action({"read_symbol": parameters})
 
 
+def python_structure(
+    path: str = ".",
+    *,
+    max_files: int = 300,
+    max_symbols: int = 2000,
+    compact: bool = False,
+) -> Action:
+    return Action(
+        {
+            "python_structure": {
+                "path": path,
+                "max_files": max_files,
+                "max_symbols": max_symbols,
+                "compact": compact,
+            }
+        }
+    )
+
+
 def find_files(
     glob: str,
     *,

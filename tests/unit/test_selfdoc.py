@@ -22,7 +22,7 @@ def test_capabilities_are_stable_and_include_safety_boundaries() -> None:
     rendered = render_capabilities()
 
     assert rendered.startswith(
-        "PATCHSHUTTLE_CAPABILITIES\n" "patchshuttle_version: 0.1.0a3\n" "protocol: 1\n"
+        "PATCHSHUTTLE_CAPABILITIES\n" "patchshuttle_version: 0.1.0a4\n" "protocol: 1\n"
     )
     assert "job_kinds: [audit, patch, verify]\n" in rendered
     assert "change_actions: [create_directory, create_file, replace_exact" in rendered
@@ -76,6 +76,9 @@ def test_explanation_is_case_insensitive_bounded_and_validated() -> None:
     assert "bounded physical-line context" in search_context
     read_symbol = render_explanation("READ_SYMBOL")
     assert "canonical SHA-256" in read_symbol
+    python_structure = render_explanation("python_structure")
+    assert "compact=false" in python_structure
+    assert "project code is not imported or executed" in python_structure
 
     with pytest.raises(ValueError, match="unknown explanation topic"):
         render_explanation("unknown")

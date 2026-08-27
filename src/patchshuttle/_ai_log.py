@@ -40,6 +40,16 @@ _PLAN_FIELDS = (
     "files_to_create",
     "files_to_modify",
     "directories_to_create",
+    "architecture_profile",
+    "architecture_organization",
+    "architecture_mode",
+    "architecture_status",
+    "architecture_evaluated_python_files",
+    "architecture_evaluated_packages",
+    "architecture_new_python_files",
+    "architecture_new_packages",
+    "architecture_findings",
+    "architecture_report_limited",
     "formatter_plan",
     "preflight_checks",
     "protected_paths",
@@ -133,6 +143,11 @@ def summarize_ai_log(text: str, *, source: str) -> dict[str, object]:
         if job:
             payload["job"] = job
     _include_selected(payload, "plan", sections.get("PLAN"), _PLAN_FIELDS)
+    _include_fields(
+        payload,
+        "python_discovery_evaluation",
+        sections.get("PYTHON_DISCOVERY_EVALUATION"),
+    )
 
     audit = _parse_records(sections.get("AUDIT"), "action_id", _ACTION_FIELDS)
     if audit:

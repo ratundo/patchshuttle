@@ -1127,6 +1127,23 @@ def _render_plan(plan: Plan, *, show_diff: bool = False) -> str:
         f"  - {item.id} {item.tool} PASS: {item.path.as_posix()} " f"({item.detail})"
         for item in plan.preflight_checks
     )
+    architecture = plan.architecture_report
+    lines.extend(
+        (
+            f"architecture_profile: {architecture.profile}",
+            f"architecture_organization: {architecture.organization}",
+            f"architecture_mode: {architecture.mode}",
+            f"architecture_status: {architecture.status}",
+            f"architecture_evaluated_python_files: "
+            f"{architecture.evaluated_python_files}",
+            f"architecture_evaluated_packages: {architecture.evaluated_packages}",
+            f"architecture_new_python_files: {architecture.new_python_files}",
+            f"architecture_new_packages: {architecture.new_packages}",
+            f"architecture_findings: {architecture.total_findings}",
+            "architecture_report_limited: " f"{str(architecture.limited).lower()}",
+        )
+    )
+    lines.extend(f"  - {finding.render()}" for finding in architecture.findings)
     lines.append(
         f"protected_paths: {'PASS' if plan.protected_paths_passed else 'BLOCKED'}"
     )

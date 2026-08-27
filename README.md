@@ -6,7 +6,7 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. Version `0.1.0a3` implements the complete
+> PatchShuttle is alpha software. Version `0.1.0a4` implements the complete
 > local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
@@ -33,9 +33,11 @@ records the result for the next iteration.
 > The current development branch also contains unreleased work completed after
 > `0.1.0a3`: `search_context`, `read_symbol`, guarded `replace_symbol`, a fixed
 > Ruff F-only check, compact text and JSON AI log views, explicit Django warning
-> baselines, and owner-controlled project-check Python selection. These features
-> are available from the source branch and are not part of the immutable
-> `0.1.0a3` PyPI artifacts.
+> baselines, owner-controlled project-check Python selection, evidence-only
+> Python discovery telemetry, expanded Python secret redaction, nested
+> dependency-environment exclusions, and bounded declaration-only
+> `python_structure` discovery. These features are available from the source
+> branch and are not part of the immutable `0.1.0a3` PyPI artifacts.
 
 ## Design goals
 
@@ -55,7 +57,7 @@ After publication, install the exact alpha release from PyPI:
 ```bash
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install "patchshuttle==0.1.0a3"
+python -m pip install "patchshuttle==0.1.0a4"
 ```
 
 For development from a local checkout:
@@ -68,7 +70,7 @@ To enable opt-in HTML template linting in an installed release, install the
 `html` extra:
 
 ```bash
-python -m pip install "patchshuttle[html]==0.1.0a3"
+python -m pip install "patchshuttle[html]==0.1.0a4"
 ```
 
 For a local development checkout, install both development and HTML extras:
@@ -588,9 +590,12 @@ Every job run log contains all standard sections in a fixed order, including
 `LINT_HTML`, using `NOT_APPLICABLE` where a stage did not run, and ends with
 `PATCHSHUTTLE_AI_HANDOFF`. Check and formatter output is bounded by local
 policy, as is HTML linter output. Common password, token, API-key,
-authorization-header, and private-key shapes are masked when redaction is
-enabled. Redaction is best-effort and is not a guarantee that a log contains no
-secrets; review a log before uploading it to any AI service.
+authorization-header, private-key, and sensitive Python assignment shapes are
+masked when redaction is enabled. Python assignment matching includes prefixed
+passwords, API and access keys, secret and private keys, tokens, and one-line
+`SECRET_KEY_FALLBACKS` collections while preserving loader calls such as
+`config("SECRET_KEY")`. Redaction is best-effort and is not a guarantee that a
+log contains no secrets; review a log before uploading it to any AI service.
 
 Early `VALIDATION_FAILED` and `PLAN_FAILED` logs use a smaller fixed attempt
 format with `SUMMARY` and `PATCHSHUTTLE_AI_HANDOFF` sections. They record no
@@ -625,6 +630,130 @@ while `--ai-json` prints the same selected data as compact JSON. These modes
 read the already stored log, preserve it unchanged, and never execute project
 code. They are mutually exclusive and retain useful audit outputs and failed
 check diagnostics within explicit bounds.
+
+Run and early validation/planning failure logs also expose
+`PYTHON_DISCOVERY_EVALUATION`. The section records only current-job evidence:
+explicit Python paths, executed audit action counts and bounded output size
+before whole-log redaction,
+declared text/symbol/line targeting, and relevant failure signals.
+`index_assessment: NOT_EVALUATED` is intentional: the report neither estimates
+AI token savings nor decides whether a project symbol index is needed.
+
+### Discover Python structure before targeted reads
+
+The read-only `python_structure` audit action collects a bounded declaration
+map before targeted reads. Start with the narrowest useful directory or one
+`.py` file because a broad package can produce a large audit result.
+
+A complete YAML audit job looks like this:
+
+```yaml
+protocol: 1
+project_id: PSH-0123456789ABCDEF
+id: AUDIT-PYTHON-STRUCTURE-001
+kind: audit
+actions:
+  - python_structure:
+      path: src/example
+      max_files: 50
+      max_symbols: 400
+      compact: true
+checks: []
+```
+
+`path` defaults to `.`, `max_files` defaults to `300`, `max_symbols`
+defaults to `2000`, and `compact` defaults to `false`. A file target must end
+in `.py`. Directory traversal respects the workspace's protected and ignored
+paths. The standard-library AST is used without importing or executing project
+code. Use `compact: true` for a navigational overview and omit it when detailed
+imports, parameters, decorators, and bases are required.
+
+Compact output begins with the same collection counts, parse errors, and limit
+signals as full output, followed by per-file records containing only counts and
+navigational symbol metadata:
+
+```text
+schema: patchshuttle.python_structure_collection.compact.v1
+path: src/example
+glob: *.py
+files_considered: 1
+files_parsed: 1
+parse_errors: 0
+imports_reported: 3
+symbols_available: 2
+symbols_reported: 2
+file_limit_reached: false
+symbol_limit_reached: false
+
+schema: patchshuttle.python_structure.compact.v1
+file: "src/example/service.py"
+imports: 3
+symbols: 2
+symbol: {"kind":"class","lines":[10,42],"qualified_name":"Service"}
+symbol: {"kind":"method","lines":[14,31],"qualified_name":"Service.run"}
+```
+
+With `compact: false`, the existing
+`patchshuttle.python_structure_collection.v1` and
+`patchshuttle.python_structure.v1` schemas remain unchanged and additionally
+include top-level import records, parameters, decorators, and bases.
+
+Use the reported qualified name for a smaller follow-up audit:
+
+```yaml
+actions:
+  - read_symbol:
+      path: src/example/service.py
+      symbol: Service.run
+```
+
+If a change is needed, copy the canonical SHA-256 returned by `read_symbol`
+into a guarded patch action:
+
+```yaml
+actions:
+  - replace_symbol:
+      path: src/example/service.py
+      symbol: Service.run
+      expected_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      new_content: |
+        def run(self, value):
+            return value
+```
+
+The same audit can be constructed through the public Python adapter:
+
+```python
+from patchshuttle import Job
+from patchshuttle.actions import python_structure
+
+job = Job(
+    protocol=1,
+    project_id="PSH-0123456789ABCDEF",
+    id="AUDIT-PYTHON-STRUCTURE-001",
+    kind="audit",
+    actions=[
+        python_structure(
+            "src/example", max_files=50, max_symbols=400, compact=True
+        )
+    ],
+)
+```
+
+Full `python_structure` output reports declarations, top-level imports,
+parameters, decorators, bases, source ranges, parse errors, and explicit limit
+signals. Compact output retains file and symbol counts, symbol kinds, qualified
+names, ranges, parse errors, and limit signals. Both modes exclude source values,
+calls, references, inferred types, caching, persistence, and automatic patch
+scope.
+
+The same section reports aggregate Python file/search matches, whether file
+discovery or searches reached their declared result bounds, and total duration
+of executed Python-targeted audit actions. Newly initialized workspaces ignore
+and protect conventional `.venv`, `venv`, and `node_modules` trees at any
+depth. Existing `patches/patchshuttle.toml` files are never rewritten by
+`init`; owners must add nested environment patterns and project-specific
+backup paths to `project.ignored_paths` when needed.
 
 The command selects the newest recorded run, snapshot, handoff, or
 failure-attempt log. Commands that intentionally produce no artifact,
@@ -705,7 +834,7 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a3-py3-none-any.whl --version 0.1.0a3
+python tools/wheel_smoke.py dist/patchshuttle-0.1.0a4-py3-none-any.whl --version 0.1.0a4
 ```
 
 The `0.1.0a2` and `0.1.0a3` alpha releases each passed the required Ubuntu and
@@ -717,6 +846,52 @@ workflow links and artifact hashes, together with the separately scoped
 release and append separate immutable evidence after each gate completes.
 Rerun CI after every release-candidate change.
 
+## Python architecture policy
+
+PatchShuttle can stop an AI-generated patch from making an already crowded Python
+codebase worse. The policy is local owner configuration, not a job option, and is
+enabled by default for the fixed `modular-monolith` / `package-by-feature`
+profile in `ratchet` mode.
+
+```toml
+[architecture]
+enabled = true
+profile = "modular-monolith"
+organization = "package-by-feature"
+mode = "ratchet"
+exclude = ["**/migrations/**", "**/generated/**"]
+max_report_items = 50
+
+[architecture.module]
+warning_lines = 500
+max_lines = 1000
+
+[architecture.package]
+warning_python_files = 15
+max_python_files = 25
+
+[architecture.patch]
+warning_new_python_files = 5
+max_new_python_files = 10
+warning_new_packages = 1
+max_new_packages = 3
+```
+
+The planner evaluates its in-memory result before touching the workspace. A file
+already above a limit may stay the same size or shrink; making it larger is a new
+regression and is blocked at the hard limit. The same rule applies to direct
+Python-file counts in touched directories. Patch-wide file and package budgets
+catch the kind of broad root-level file growth that is difficult to review.
+
+Plans and stored logs expose the profile, status, measured counts, bounded
+findings, and whether the report was truncated. `ARCH001`/`ARCH002` cover module
+size, `ARCH010`/`ARCH011` package size, and `ARCH020`/`ARCH021` patch growth.
+Warnings remain visible but do not block execution; errors fail planning before
+confirmation, backup, or project checks.
+
+This is deliberately a structural guard. It does not infer feature boundaries,
+build dependency or call graphs, detect cycles, judge semantic responsibility,
+reorganize files, or change the patch scope selected by the AI.
 ## Manual workflow
 
 The implemented local cycle is:

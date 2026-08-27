@@ -9,7 +9,14 @@ from os import PathLike
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from patchshuttle.errors import WorkspaceError, WorkspaceErrorCode
 from patchshuttle.identifiers import ProjectId
@@ -27,9 +34,9 @@ DEFAULT_PROTECTED_PATHS = (
     ".env",
     ".env.*",
     "patches/**",
-    ".venv/**",
-    "venv/**",
-    "node_modules/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/node_modules/**",
 )
 DEFAULT_PROTECTED_PATH_EXCEPTIONS = (
     ".env.example",
@@ -41,9 +48,9 @@ DEFAULT_IGNORED_PATHS = (
     "patches/backups/**",
     "patches/logs/**",
     "patches/state/**",
-    ".venv/**",
-    "venv/**",
-    "node_modules/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/node_modules/**",
     "**/__pycache__/**",
     ".pytest_cache/**",
     ".mypy_cache/**",
@@ -142,6 +149,65 @@ class LintingSettings(_ConfigModel):
     html: HtmlLintSettings = Field(default_factory=HtmlLintSettings)
 
 
+class ArchitectureModuleSettings(_ConfigModel):
+    warning_lines: PositiveInteger = 500
+    max_lines: PositiveInteger = 1000
+
+
+class ArchitecturePackageSettings(_ConfigModel):
+    warning_python_files: PositiveInteger = 15
+    max_python_files: PositiveInteger = 25
+
+
+class ArchitecturePatchSettings(_ConfigModel):
+    warning_new_python_files: PositiveInteger = 5
+    max_new_python_files: PositiveInteger = 10
+    warning_new_packages: PositiveInteger = 1
+    max_new_packages: PositiveInteger = 3
+
+
+class ArchitectureSettings(_ConfigModel):
+    enabled: bool = Field(default=True, strict=True)
+    profile: Literal["modular-monolith"] = "modular-monolith"
+    organization: Literal["package-by-feature"] = "package-by-feature"
+    mode: Literal["ratchet"] = "ratchet"
+    module: ArchitectureModuleSettings = Field(
+        default_factory=ArchitectureModuleSettings
+    )
+    package: ArchitecturePackageSettings = Field(
+        default_factory=ArchitecturePackageSettings
+    )
+    patch: ArchitecturePatchSettings = Field(default_factory=ArchitecturePatchSettings)
+    exclude: tuple[StrictString, ...] = (
+        "**/migrations/**",
+        "**/generated/**",
+    )
+    max_report_items: PositiveInteger = 50
+
+    @model_validator(mode="after")
+    def validate_warning_thresholds(self) -> ArchitectureSettings:
+        pairs = (
+            (self.module.warning_lines, self.module.max_lines),
+            (
+                self.package.warning_python_files,
+                self.package.max_python_files,
+            ),
+            (
+                self.patch.warning_new_python_files,
+                self.patch.max_new_python_files,
+            ),
+            (
+                self.patch.warning_new_packages,
+                self.patch.max_new_packages,
+            ),
+        )
+        if any(warning > maximum for warning, maximum in pairs):
+            raise ValueError(
+                "architecture warning thresholds must not exceed hard limits"
+            )
+        return self
+
+
 class LoggingSettings(_ConfigModel):
     timezone: StrictString = "local"
     include_command_output: bool = Field(default=True, strict=True)
@@ -166,6 +232,7 @@ class PatchShuttleConfig(_ConfigModel):
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     formatting: FormattingSettings = Field(default_factory=FormattingSettings)
     linting: LintingSettings = Field(default_factory=LintingSettings)
+    architecture: ArchitectureSettings = Field(default_factory=ArchitectureSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     checks: ChecksSettings = Field(default_factory=ChecksSettings)
 
@@ -271,6 +338,27 @@ def render_default_config(
         'profile = "html"\n'
         'scope = "changed_html_files"\n'
         "ignore = []\n\n"
+        "[architecture]\n"
+        "enabled = true\n"
+        'profile = "modular-monolith"\n'
+        'organization = "package-by-feature"\n'
+        'mode = "ratchet"\n'
+        "exclude = [\n"
+        '  "**/migrations/**",\n'
+        '  "**/generated/**",\n'
+        "]\n"
+        "max_report_items = 50\n\n"
+        "[architecture.module]\n"
+        "warning_lines = 500\n"
+        "max_lines = 1000\n\n"
+        "[architecture.package]\n"
+        "warning_python_files = 15\n"
+        "max_python_files = 25\n\n"
+        "[architecture.patch]\n"
+        "warning_new_python_files = 5\n"
+        "max_new_python_files = 10\n"
+        "warning_new_packages = 1\n"
+        "max_new_packages = 3\n\n"
         "[logging]\n"
         'timezone = "local"\n'
         "include_command_output = true\n"
@@ -295,6 +383,10 @@ def _format_validation_path(location: tuple[int | str, ...]) -> str:
 
 
 __all__ = [
+    "ArchitectureModuleSettings",
+    "ArchitecturePackageSettings",
+    "ArchitecturePatchSettings",
+    "ArchitectureSettings",
     "CheckProfileSettings",
     "ChecksSettings",
     "ExecutionSettings",

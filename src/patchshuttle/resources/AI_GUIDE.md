@@ -44,6 +44,7 @@ When asked for a PatchShuttle job:
 - `search` - literal text search.
 - `search_context` - literal search with bounded physical-line context.
 - `read_symbol` - one exactly resolved Python symbol with range and hash.
+- `python_structure` - bounded declaration-only Python structure discovery.
 - `find_files` - bounded glob search.
 - `file_info` - file metadata.
 - `hash` - SHA-256 file hash.
@@ -52,6 +53,44 @@ When asked for a PatchShuttle job:
 - `git_status` - Git status when Git is available.
 - `environment` - bounded development-environment summary.
 
+### Python structure discovery workflow
+
+Use `python_structure` when a task needs a declaration overview before source
+reads. Prefer one feature directory or one `.py` file over the repository root,
+and lower the explicit limits when a smaller map is sufficient:
+
+```yaml
+actions:
+  - python_structure:
+      path: src/example
+      max_files: 50
+      max_symbols: 400
+      compact: true
+```
+
+`path` defaults to `.`, `max_files` to `300`, `max_symbols` to `2000`, and
+`compact` to `false`. Directory and `.py` file targets are accepted. Prefer
+`compact: true` for broad discovery: it keeps collection counts, limit signals,
+file paths, import and symbol counts, symbol kinds, qualified names, and physical
+ranges. Use full mode only when top-level import records, parameters, decorators,
+or bases are needed. Parse errors are reported without source excerpts in both
+modes.
+
+After discovery, use `read_symbol` on the narrow qualified target instead of
+broad source reads:
+
+```yaml
+actions:
+  - read_symbol:
+      path: src/example/service.py
+      symbol: Service.run
+```
+
+Use the returned canonical SHA-256 only in a later guarded `replace_symbol`
+patch. Do not infer calls, references, types, runtime behavior, or patch scope
+from either declaration format. Project code is never imported or executed by
+these audit actions. Compact mode changes only rendering; caching and persistence
+are not implemented.
 ## Change actions
 
 - `create_directory` - create one directory.
@@ -99,6 +138,25 @@ actions:
         replacement
 ```
 
+## Architecture ratchet
+
+Local `[architecture]` configuration is owner authority and cannot be overridden
+by a YAML job. During `plan`, PatchShuttle evaluates changed or created Python
+modules and their direct parent packages against the virtual post-patch state.
+Respect `WARNING` findings and correct `ERROR` findings rather than disabling the
+policy or splitting files mechanically merely to satisfy a count.
+
+Default stable codes are:
+
+- `ARCH001` hard module growth and `ARCH002` module warning growth;
+- `ARCH010` hard package growth and `ARCH011` package warning growth;
+- `ARCH020` excessive new Python files and `ARCH021` excessive new packages.
+
+Ratchet semantics permit an existing over-limit module or package to remain
+unchanged or improve. Migrations and generated code are excluded by default.
+Reports are bounded by `max_report_items`; `architecture_report_limited` tells
+you whether more findings existed. Never infer dependencies, feature ownership,
+semantic SRP, or a reorganization from these numeric findings alone.
 ## Checks
 
 - `compileall`
@@ -203,7 +261,21 @@ fails after workspace resolution, ask for the generated failure `.log`; its
 path is printed in the terminal and available through
 `patchshuttle logs --last`. Prefer `patchshuttle logs --last --ai` for a
 compact deterministic text view or `--ai-json` for machine-readable output;
-the original full log remains unchanged. Use reported exact line numbers,
+the original full log remains unchanged.
+
+Treat `PYTHON_DISCOVERY_EVALUATION` as evidence from only the current job.
+Compare its explicit Python paths, audit output volume, targeting counts,
+reason codes, and failure signal across multiple real-project logs. Do not
+interpret `index_assessment: NOT_EVALUATED` as a recommendation, and do not
+claim measured token savings from these fields.
+
+Compare reported Python file/search matches, result-limit fields, and audit
+duration only between jobs with equivalent actions and bounds. Treat evidence
+as contaminated when owner-controlled `project.ignored_paths` still allow
+environments, generated copies, or backups into traversal. Do not ask a job
+to hide paths dynamically: exclusions remain local workspace policy.
+
+Use reported exact line numbers,
 nearby similarity
 matches, or
 unified-diff hunk diagnostics to correct the next job instead of guessing file
@@ -261,8 +333,11 @@ dumping source contents. The same completed job ID and normalized hash returns
 `ALREADY_APPLIED`; the same ID with different content returns
 `PATCH_ID_CONFLICT`. An `UNEXPECTED_WORKSPACE_CHANGE` result means the reported
 external path must be reviewed separately; for a normal patch, declared paths
-are rolled back. Redaction is best-effort; do not tell the user that a log is
-guaranteed to contain no secrets.
+are rolled back. Redaction is best-effort. It masks common credential shapes
+and sensitive Python assignments, including prefixed secret identifiers and
+one-line secret collections, while preserving safe references and loader calls.
+Always review the resulting log; do not tell the user that it is guaranteed to
+contain no secrets.
 
 Early `VALIDATION_FAILED` and `PLAN_FAILED` logs do not archive invalid source,
 update the registry, report project changes, or create backups. Successful

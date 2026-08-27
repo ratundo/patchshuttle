@@ -19,6 +19,10 @@ AUDIT_ACTIONS: tuple[tuple[dict[str, Any], str], ...] = (
         {"read_symbol": {"path": "src/example.py", "symbol": "Service.run"}},
         "read_symbol",
     ),
+    (
+        {"python_structure": {"path": "src", "compact": True}},
+        "python_structure",
+    ),
     ({"find_files": {"glob": "*.py"}}, "find_files"),
     ({"file_info": {"path": "pyproject.toml"}}, "file_info"),
     ({"hash": {"path": "README.md"}}, "hash"),

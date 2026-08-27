@@ -32,6 +32,7 @@ name.
 - `search_context`: the `search` fields plus bounded `before` and `after`
   physical-line counts.
 - `read_symbol`: Python `path`, dotted `symbol`, and optional `max_bytes`.
+- `python_structure`: optional `path`, `max_files`, `max_symbols`, and `compact`.
 - `find_files`: `path`, `glob`, `max_results`.
 - `file_info`: `path`.
 - `hash`: `path`, optional `algorithm: sha256`.
@@ -44,6 +45,37 @@ name.
 matches. `read_symbol` parses Python without importing project code, requires
 exactly one decorator-aware class, function, method, or nested-symbol match,
 and returns its physical range plus canonical LF/UTF-8 SHA-256.
+
+`python_structure` accepts a directory or one `.py` file. `path` defaults to
+`.`, `max_files` to `300`, `max_symbols` to `2000`, and boolean `compact`
+to `false`. Other file targets are rejected during planning. Directory traversal
+respects protected and ignored paths.
+
+```yaml
+actions:
+  - python_structure:
+      path: src/example
+      max_files: 50
+      max_symbols: 400
+      compact: true
+```
+
+Full output retains the existing
+`patchshuttle.python_structure_collection.v1` collection schema and
+`patchshuttle.python_structure.v1` per-file schema. It reports counts, parse
+errors, limit signals, top-level import records, declarations, qualified names,
+parameters, decorators, bases, and physical source ranges.
+
+Compact output uses `patchshuttle.python_structure_collection.compact.v1` and
+`patchshuttle.python_structure.compact.v1`. It retains the same counts, parse
+errors, and limit signals. Per-file records contain file paths, import and symbol
+counts, and symbol records limited to kind, qualified name, and physical range.
+Syntax errors are reported without source excerpts in both modes.
+
+The action uses the standard-library AST without importing or executing project
+code. Neither mode exposes source values or resolves calls, references, imports,
+inferred types, or runtime behavior. Neither mode caches, persists, or selects
+patch scope. The normal audit output limit remains authoritative.
 
 ## Change actions
 
@@ -71,6 +103,21 @@ canonical characters encoded as UTF-8. A bounds or guard mismatch stops the
 plan. PatchShuttle does not fuzz, relocate, partially apply, or automatically
 shift a range.
 
+## Local Python architecture policy
+
+Architecture limits are workspace-local TOML policy, not protocol-1 job fields.
+The fixed profile is `modular-monolith`, the organization hint is
+`package-by-feature`, and the only mode is `ratchet`. Planning evaluates the
+resolved virtual Python file state with the bounded workspace inventory before
+execution. Warnings are reported; hard regressions fail with
+`ARCHITECTURE_POLICY_FAILED`. Inventory failures fail closed with
+`ARCHITECTURE_INSPECTION_FAILED`.
+
+Stable finding codes are `ARCH001`, `ARCH002`, `ARCH010`, `ARCH011`, `ARCH020`,
+and `ARCH021`. Plan and log summaries expose the active profile, organization,
+mode, status, evaluated and new counts, total findings, and report-limit flag.
+No source fragments are included. The policy does not add a job action, execute
+project code, infer dependencies, reorganize files, or alter patch targeting.
 ## Checks
 
 - `compileall`: non-empty `paths`, optional `quiet` from `0` through `2`.
@@ -179,9 +226,29 @@ normalized content under an existing ID returns `PATCH_ID_CONFLICT`. Use
 `patchshuttle rollback PATCH_ID` for guarded manual restoration of a completed
 patch, `snapshot` for bounded project metadata, `handoff` for upload-friendly
 AI context, `logs --last` for the newest log, and `status [JOB_ID]` for registry
-state. Log redaction is best-effort, so review a log before sharing it. The JSON
-Schema in `patchshuttle.schema.json` is the exact structural schema produced by
-the installed model version.
+state. Log redaction is best-effort. It masks common credential shapes and
+sensitive Python assignments, including prefixed password, token, API-key,
+access-key, secret-key, private-key, and one-line secret-collection values,
+while preserving safe references and loader calls. Review every log before
+sharing it. The JSON Schema in `patchshuttle.schema.json` is the exact
+structural schema produced by the installed model version.
+
+Run logs and early validation/planning failure logs contain a
+`PYTHON_DISCOVERY_EVALUATION` section. Its evidence scope is the current job.
+It reports explicit `.py` paths, executed Python-targeted audit actions,
+bounded audit output byte/line counts before whole-log redaction, declared
+text/symbol/line targeting,
+and selected targeting failure signals. Unscoped searches are counted
+separately. The section performs no project scan, token estimate, semantic
+resolution, historical aggregation, or symbol-index recommendation;
+`index_assessment` remains `NOT_EVALUATED`.
+
+The section also aggregates `matches`, `result_limit_reached`, and
+`duration_ms` already recorded by completed Python-targeted audit actions.
+Default policy for newly initialized workspaces ignores and protects nested
+`.venv`, `venv`, and `node_modules` trees. Existing configuration is
+owner-controlled and is not migrated automatically; repository-specific
+generated or backup directories belong in `project.ignored_paths`.
 
 A validation or planning failure after workspace resolution writes a smaller
 timestamped `VALIDATION_FAILED` or `PLAN_FAILED` log with `SUMMARY` and

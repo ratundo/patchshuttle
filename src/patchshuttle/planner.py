@@ -15,6 +15,11 @@ from os import PathLike
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+from patchshuttle._architecture import (
+    ArchitectureReport,
+    disabled_architecture_report,
+    evaluate_architecture,
+)
 from patchshuttle._diff import apply_file_diff, parse_unified_diff
 from patchshuttle._line_ranges import (
     CanonicalLineRange,
@@ -32,6 +37,7 @@ from patchshuttle.formatter_policy import (
     FormatterName,
     PlannedFormatterTarget,
 )
+from patchshuttle.inventory import InventoryError
 from patchshuttle.models import Action, Check, Job, JobKind
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import (
@@ -132,6 +138,9 @@ class Plan:
     protected_paths_passed: bool
     backup_destination: PurePosixPath | None
     auto_rollback: bool
+    architecture_report: ArchitectureReport = field(
+        default_factory=disabled_architecture_report
+    )
 
     @property
     def project_python(self) -> Path | None:
@@ -267,6 +276,33 @@ class _Planner:
             self._plan_check(check, item_id=f"check_{index:03d}")
 
         file_changes = self._build_file_changes()
+        try:
+            architecture_report = evaluate_architecture(
+                self.workspace,
+                file_changes,
+            )
+        except InventoryError as exc:
+            raise PlanningError(
+                PlanningErrorCode.ARCHITECTURE_INSPECTION_FAILED,
+                "architecture policy could not inspect the bounded workspace inventory",
+                path=exc.path.as_posix() if exc.path is not None else None,
+                details=(f"  - inventory: {exc}",),
+            ) from exc
+        if architecture_report.error_count:
+            raise PlanningError(
+                PlanningErrorCode.ARCHITECTURE_POLICY_FAILED,
+                "planned Python structure regresses the local architecture policy",
+                details=tuple(
+                    f"  - {finding.render()}"
+                    for finding in architecture_report.findings
+                )
+                + (
+                    "  - architecture findings: "
+                    f"total={architecture_report.total_findings}, "
+                    f"reported={len(architecture_report.findings)}, "
+                    f"limited={str(architecture_report.limited).lower()}",
+                ),
+            )
         formatting_targets = self._formatting_targets(file_changes)
         for name in FORMATTER_ORDER:
             exclusions = frozenset(
@@ -313,6 +349,7 @@ class _Planner:
                 if self.job.kind is JobKind.PATCH
                 else False
             ),
+            architecture_report=architecture_report,
         )
 
     def _validate_job_policy(self) -> None:
@@ -342,6 +379,19 @@ class _Planner:
                 item_id=item_id,
                 expected=PathKind.DIRECTORY,
             )
+            paths = (target.relative,)
+        elif action.name == "python_structure":
+            target = self._audit_target(parameters.path, item_id=item_id)
+            if (
+                target.kind is PathKind.FILE
+                and target.relative.suffix.casefold() != ".py"
+            ):
+                raise self._error(
+                    PlanningErrorCode.TARGET_TYPE_INVALID,
+                    "python_structure requires a directory or .py file",
+                    item_id,
+                    path=target.relative.as_posix(),
+                )
             paths = (target.relative,)
         elif action.name in {"read", "read_symbol"}:
             requested_max = parameters.max_bytes

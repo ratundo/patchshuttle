@@ -30,6 +30,9 @@ def test_default_configuration_round_trip() -> None:
     assert "max_job_bytes = 2000000" in text
     assert "max_inventory_entries = 50000" in text
     assert "max_inventory_bytes = 1000000000" in text
+    assert '"**/.venv/**"' in text
+    assert '"**/venv/**"' in text
+    assert '"**/node_modules/**"' in text
     assert text.endswith("\n")
 
 

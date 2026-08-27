@@ -84,4 +84,4 @@ def test_testpypi_and_pypi_use_isolated_trusted_publish_jobs() -> None:
 
 
 def test_source_version_matches_release_candidate() -> None:
-    assert source_version(Path.cwd()) == "0.1.0a3"
+    assert source_version(Path.cwd()) == "0.1.0a4"

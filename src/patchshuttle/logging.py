@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from patchshuttle._python_discovery import (
+    PythonDiscoveryEvaluation,
+    evaluate_python_discovery,
+)
 from patchshuttle._version import __version__
 from patchshuttle.audit import AuditActionResult
 from patchshuttle.checks import CheckResult
@@ -40,6 +44,7 @@ STANDARD_SECTIONS = (
     "AUDIT",
     "BACKUP",
     "ACTIONS",
+    "PYTHON_DISCOVERY_EVALUATION",
     "LINT_HTML",
     "INITIAL_CHECKS",
     "FORMAT_ISORT",
@@ -73,9 +78,14 @@ _AUTHORIZATION = re.compile(
     r"(?i)(\bauthorization\s*[:=]\s*(?:bearer|basic)\s+)[^\s\"']+"
 )
 _ASSIGNMENT = re.compile(
-    r"(?i)(?P<prefix>[\"']?\b(?P<key>api[_-]?key|access[_-]?token|auth[_-]?token|"
-    r"client[_-]?secret|password|passwd|secret|token)[\"']?\s*[:=]\s*)"
-    r"(?P<value>[\"'][^\"'\r\n]*[\"']|[A-Za-z_][A-Za-z0-9_.]*\([^,\r\n]*\)|[^\s,;)\]}]+)"
+    r"(?i)(?P<prefix>[\"']?\b(?P<key>(?:[a-z0-9]+[_-])*(?:"
+    r"api[_-]?key|access[_-]?key|secret[_-]?key(?:[_-]?fallbacks)?|"
+    r"private[_-]?key|access[_-]?token|auth[_-]?token|"
+    r"client[_-]?secret|password|passwd|secret|token))"
+    r"[\"']?\s*[:=]\s*)"
+    r"(?P<value>[\"'][^\"'\r\n]*[\"']|\[[^\]\r\n]*\]|"
+    r"\{[^}\r\n]*\}|\([^)\r\n]*\)|"
+    r"[A-Za-z_][A-Za-z0-9_.]*\([^,\r\n]*\)|[^\s,;)\]}]+)"
 )
 _SAFE_ANNOTATION_VALUES = frozenset(
     {"any", "bytearray", "bytes", "memoryview", "none", "str"}
@@ -268,6 +278,9 @@ def write_attempt_log(data: AttemptLogData) -> Path:
             "archived_job_copy: NOT_APPLICABLE",
             "registry_updated: false",
             "",
+            "=== PYTHON_DISCOVERY_EVALUATION ===",
+            _python_discovery_attempt_section(data),
+            "",
             "=== SUMMARY ===",
             f"result: {data.result}",
             f"failure_stage: {data.failure_stage}",
@@ -391,7 +404,7 @@ def capabilities_hash() -> str:
 def _redact_assignment(match: re.Match[str]) -> str:
     prefix = match.group("prefix")
     candidate = match.group("value")
-    if candidate.startswith(('"', "'")):
+    if candidate.startswith(('"', "'", "[", "{", "(")):
         return prefix + "[REDACTED]"
 
     key = match.group("key").casefold().replace("-", "_")
@@ -431,8 +444,12 @@ def _render_log(data: RunLogData, log_path: Path) -> str:
         "AUDIT": _audit_section(data),
         "BACKUP": _backup_section(data),
         "ACTIONS": _actions_section(data),
+        "PYTHON_DISCOVERY_EVALUATION": _python_discovery_section(data),
         "LINT_HTML": _html_lint_section(data),
-        "INITIAL_CHECKS": _checks_section(_split_checks(data)[0], data.workspace),
+        "INITIAL_CHECKS": _checks_section(
+            _split_checks(data)[0],
+            data.workspace,
+        ),
         "FORMAT_ISORT": _formatter_section(
             _formatter(data, "isort"),
             data.workspace,
@@ -443,7 +460,10 @@ def _render_log(data: RunLogData, log_path: Path) -> str:
             data.workspace,
             skipped_by_local_policy=_formatter_skipped(data, "black"),
         ),
-        "FINAL_CHECKS": _checks_section(_split_checks(data)[1], data.workspace),
+        "FINAL_CHECKS": _checks_section(
+            _split_checks(data)[1],
+            data.workspace,
+        ),
         "WORKSPACE_COMPARISON": _comparison_section(data),
         "ROLLBACK": _rollback_section(data),
         "SUMMARY": _summary_section(data, log_path),
@@ -506,9 +526,27 @@ def _plan_section(plan: Plan | None) -> str:
         f"files_to_create: {_json_paths(plan.files_to_create)}",
         f"files_to_modify: {_json_paths(plan.files_to_modify)}",
         f"directories_to_create: {_json_paths(plan.directories_to_create)}",
+        f"architecture_profile: {plan.architecture_report.profile}",
+        "architecture_organization: " f"{plan.architecture_report.organization}",
+        f"architecture_mode: {plan.architecture_report.mode}",
+        f"architecture_status: {plan.architecture_report.status}",
+        "architecture_evaluated_python_files: "
+        f"{plan.architecture_report.evaluated_python_files}",
+        "architecture_evaluated_packages: "
+        f"{plan.architecture_report.evaluated_packages}",
+        "architecture_new_python_files: "
+        f"{plan.architecture_report.new_python_files}",
+        f"architecture_new_packages: {plan.architecture_report.new_packages}",
+        f"architecture_findings: {plan.architecture_report.total_findings}",
+        "architecture_report_limited: "
+        f"{str(plan.architecture_report.limited).lower()}",
         f"formatting_scope: {_json_paths(plan.formatting_targets)}",
         f"formatter_plan: {len(plan.formatter_plan)}",
     ]
+    lines.extend(
+        f"architecture_finding: {finding.render()}"
+        for finding in plan.architecture_report.findings
+    )
     for item in plan.formatter_plan:
         lines.append(
             "formatter: "
@@ -606,6 +644,86 @@ def _audit_section(data: RunLogData) -> str:
         )
         records.append(f"{header}\noutput_begin\n{item.output}\noutput_end")
     return "\n---\n".join(records)
+
+
+def _python_discovery_section(data: RunLogData) -> str:
+    results = data.audit_results
+    if data.error is not None and data.error.audit_results:
+        results = data.error.audit_results
+    evaluation = evaluate_python_discovery(
+        data.job,
+        audit_results=results,
+        failure_code=data.failure_code,
+        failed_path=(data.error.path if data.error is not None else None),
+    )
+    return _python_discovery_fields(evaluation)
+
+
+def _python_discovery_attempt_section(data: AttemptLogData) -> str:
+    if data.job is None:
+        return _python_discovery_fields(None)
+    evaluation = evaluate_python_discovery(
+        data.job,
+        failure_code=data.failure_code,
+        failed_path=data.failed_path,
+    )
+    return _python_discovery_fields(evaluation)
+
+
+def _python_discovery_fields(
+    evaluation: PythonDiscoveryEvaluation | None,
+) -> str:
+    if evaluation is None:
+        return _fields(
+            applicable="unknown",
+            evidence_scope="CURRENT_JOB",
+            evidence_status="UNAVAILABLE_UNPARSED_JOB",
+            index_assessment="NOT_EVALUATED",
+            explicit_python_paths="[]",
+            python_read_actions=0,
+            python_read_symbol_actions=0,
+            python_structure_actions=0,
+            python_search_actions=0,
+            unclassified_search_actions=0,
+            python_find_files_actions=0,
+            python_files_reported=0,
+            python_file_limit_reached="false",
+            python_search_matches=0,
+            python_searches_limited=0,
+            python_audit_duration_ms=0,
+            python_audit_output_bytes=0,
+            python_audit_output_lines=0,
+            declared_python_text_actions=0,
+            declared_python_symbol_actions=0,
+            declared_python_line_actions=0,
+            failure_signal=None,
+            reason_codes="[]",
+        )
+    return _fields(
+        applicable=str(evaluation.applicable).lower(),
+        evidence_scope="CURRENT_JOB",
+        evidence_status=("COLLECTED" if evaluation.applicable else "NOT_APPLICABLE"),
+        index_assessment="NOT_EVALUATED",
+        explicit_python_paths=_json_paths(evaluation.explicit_python_paths),
+        python_read_actions=evaluation.python_read_actions,
+        python_read_symbol_actions=evaluation.python_read_symbol_actions,
+        python_structure_actions=evaluation.python_structure_actions,
+        python_search_actions=evaluation.python_search_actions,
+        unclassified_search_actions=evaluation.unclassified_search_actions,
+        python_find_files_actions=evaluation.python_find_files_actions,
+        python_files_reported=evaluation.python_files_reported,
+        python_file_limit_reached=str(evaluation.python_file_limit_reached).lower(),
+        python_search_matches=evaluation.python_search_matches,
+        python_searches_limited=evaluation.python_searches_limited,
+        python_audit_duration_ms=evaluation.python_audit_duration_ms,
+        python_audit_output_bytes=evaluation.python_audit_output_bytes,
+        python_audit_output_lines=evaluation.python_audit_output_lines,
+        declared_python_text_actions=evaluation.declared_python_text_actions,
+        declared_python_symbol_actions=evaluation.declared_python_symbol_actions,
+        declared_python_line_actions=evaluation.declared_python_line_actions,
+        failure_signal=evaluation.failure_signal,
+        reason_codes=json.dumps(list(evaluation.reason_codes)),
+    )
 
 
 def _checks_section(

@@ -153,6 +153,35 @@ def test_redaction_masks_common_shapes_and_preserves_nonsecret_context() -> None
     assert redacted.count("[REDACTED]") >= 7
 
 
+def test_redaction_masks_python_secret_assignments_and_preserves_indirection() -> None:
+    source = "\n".join(
+        (
+            '    25: SECRET_KEY = "django-secret-value"',
+            "    26: EMAIL_HOST_PASSWORD = 'mail-secret-value'",
+            '    27: SERVICE_API_KEY = "api-secret-value"',
+            '    28: AWS_PRIVATE_KEY = "private-secret-value"',
+            '    29: SECRET_KEY_FALLBACKS = ["old-key-one", "old-key-two"]',
+            '    30: SECRET_KEY = config("SECRET_KEY")',
+            '    31: ordinary_setting = "visible"',
+        )
+    )
+
+    redacted = redact_text(source)
+
+    for secret in (
+        "django-secret-value",
+        "mail-secret-value",
+        "api-secret-value",
+        "private-secret-value",
+        "old-key-one",
+        "old-key-two",
+    ):
+        assert secret not in redacted
+    assert redacted.count("[REDACTED]") == 5
+    assert 'SECRET_KEY = config("SECRET_KEY")' in redacted
+    assert 'ordinary_setting = "visible"' in redacted
+
+
 def test_redaction_preserves_python_references_annotations_and_calls() -> None:
     source = "\n".join(
         (
@@ -204,6 +233,7 @@ def test_log_has_every_fixed_section_ai_footer_redaction_and_collision(
     assert second.name == "log_2026_08_07_12_34_56_PATCH-014_2.log"
     positions = [text.index(f"=== {name} ===") for name in STANDARD_SECTIONS]
     assert positions == sorted(positions)
+    assert "=== PYTHON_DISCOVERY_EVALUATION ===\n" in text
     assert text.endswith("=== END_PATCHSHUTTLE_AI_HANDOFF ===\n")
     assert "redaction: BEST_EFFORT_ENABLED" in text
     assert "redaction_guarantee: NONE" in text

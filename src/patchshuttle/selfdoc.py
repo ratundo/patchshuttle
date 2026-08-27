@@ -14,6 +14,7 @@ AUDIT_ACTIONS = (
     "search",
     "search_context",
     "read_symbol",
+    "python_structure",
     "find_files",
     "file_info",
     "hash",
@@ -139,6 +140,13 @@ summary: Read one exactly resolved Python class, function, method, or nested sym
 fields: path and dotted symbol (required); max_bytes (optional)
 output: Includes symbol kind, decorator-aware physical range, canonical SHA-256, and numbered source lines.
 safety: Python AST locates boundaries without rewriting source; missing or duplicate symbols fail exactly.""",
+    "python_structure": """\
+category: audit_action
+summary: Report bounded declaration-only structure for Python files below one path.
+fields: path=., max_files=300, max_symbols=2000, and compact=false (optional)
+output: Full mode includes import and declaration metadata; compact mode keeps file paths, counts, symbol kinds, qualified names, ranges, parse errors, and limit signals.
+compatibility: Omitting compact preserves the existing full schemas and output.
+safety: Standard-library AST only; project code is not imported or executed, and source values, calls, references, inference, caching, and persistence are excluded.""",
     "hash_range": """\
 category: audit_action
 summary: Calculate the canonical SHA-256 guard for one 1-based inclusive physical-line range.

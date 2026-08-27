@@ -90,6 +90,13 @@ class ReadSymbolParameters(_FrozenModel):
     max_bytes: PositiveInteger | None = None
 
 
+class PythonStructureParameters(_FrozenModel):
+    path: NonEmptyString = "."
+    max_files: PositiveInteger = 300
+    max_symbols: PositiveInteger = 2000
+    compact: bool = False
+
+
 class FindFilesParameters(_FrozenModel):
     path: NonEmptyString = "."
     glob: NonEmptyString
@@ -307,6 +314,10 @@ class ReadSymbolAction(_FrozenModel):
     read_symbol: ReadSymbolParameters
 
 
+class PythonStructureAction(_FrozenModel):
+    python_structure: PythonStructureParameters
+
+
 class FindFilesAction(_FrozenModel):
     find_files: FindFilesParameters
 
@@ -381,6 +392,7 @@ ActionValue: TypeAlias = (
     | SearchAction
     | SearchContextAction
     | ReadSymbolAction
+    | PythonStructureAction
     | FindFilesAction
     | FileInfoAction
     | HashAction
@@ -405,6 +417,7 @@ ActionName: TypeAlias = Literal[
     "search",
     "search_context",
     "read_symbol",
+    "python_structure",
     "find_files",
     "file_info",
     "hash",
@@ -430,6 +443,7 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "search": SearchAction,
     "search_context": SearchContextAction,
     "read_symbol": ReadSymbolAction,
+    "python_structure": PythonStructureAction,
     "find_files": FindFilesAction,
     "file_info": FileInfoAction,
     "hash": HashAction,
@@ -456,6 +470,7 @@ AUDIT_ACTION_NAMES = frozenset(
         "search",
         "search_context",
         "read_symbol",
+        "python_structure",
         "find_files",
         "file_info",
         "hash",

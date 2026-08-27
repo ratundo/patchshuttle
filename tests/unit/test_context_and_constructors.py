@@ -34,6 +34,7 @@ from patchshuttle.actions import (
     insert_after,
     insert_at_line,
     insert_before,
+    python_structure,
     read,
     read_symbol,
     replace_exact,
@@ -242,6 +243,17 @@ def test_all_action_constructors_match_yaml_models() -> None:
                     "path": "src/example.py",
                     "symbol": "Service.run",
                     "max_bytes": 1000,
+                }
+            },
+        ),
+        (
+            python_structure("src", max_files=10, max_symbols=20, compact=True),
+            {
+                "python_structure": {
+                    "path": "src",
+                    "max_files": 10,
+                    "max_symbols": 20,
+                    "compact": True,
                 }
             },
         ),
