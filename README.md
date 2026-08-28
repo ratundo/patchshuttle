@@ -6,7 +6,7 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. Version `0.1.0a4` implements the complete
+> PatchShuttle is alpha software. Version `0.1.0a5` implements the complete
 > local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
@@ -38,6 +38,13 @@ records the result for the next iteration.
 > owner-controlled architecture ratchets. These features are included in the
 > immutable `0.1.0a4` PyPI artifacts.
 
+> [!NOTE]
+> Version `0.1.0a5` adds schema-versioned append-only structured job
+> history, facts-first records, best-effort persistence, and bounded
+> read-only Python and CLI retrieval. Detailed execution logs remain the
+> diagnostic source; external orchestrators remain responsible for project
+> memory, semantic retrieval, requirements, and user decisions.
+
 ## Design goals
 
 - Keep every change local and explicitly initiated by the user.
@@ -56,7 +63,7 @@ After publication, install the exact alpha release from PyPI:
 ```bash
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install "patchshuttle==0.1.0a4"
+python -m pip install "patchshuttle==0.1.0a5"
 ```
 
 For development from a local checkout:
@@ -69,7 +76,7 @@ To enable opt-in HTML template linting in an installed release, install the
 `html` extra:
 
 ```bash
-python -m pip install "patchshuttle[html]==0.1.0a4"
+python -m pip install "patchshuttle[html]==0.1.0a5"
 ```
 
 For a local development checkout, install both development and HTML extras:
@@ -833,7 +840,7 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a4-py3-none-any.whl --version 0.1.0a4
+python tools/wheel_smoke.py dist/patchshuttle-0.1.0a5-py3-none-any.whl --version 0.1.0a5
 ```
 
 The `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` alpha releases each passed the
@@ -892,6 +899,53 @@ confirmation, backup, or project checks.
 This is deliberately a structural guard. It does not infer feature boundaries,
 build dependency or call graphs, detect cycles, judge semantic responsibility,
 reorganize files, or change the patch scope selected by the AI.
+
+## Structured project history
+
+PatchShuttle writes one compact JSON record for each recorded execution attempt to
+`patches/history/<job-id>/<record-id>.json`. These records are intended for
+long-term external ingestion and AI retrieval. They describe PatchShuttle's own
+operations only; requirements, conversations, product decisions, stages, browser
+tests, and semantic project memory belong to an external orchestrator.
+
+History has a different purpose from the other outputs:
+
+- execution logs contain detailed diagnostic evidence and command output;
+- AI logs are bounded deterministic views derived from execution logs;
+- history records contain compact schema-versioned facts plus references to the
+  detailed log and its derived AI-log view.
+
+`job.title` and bounded, redacted `job.description` are stored below `declared` as
+operator or AI-supplied intent. They are never presented as observed facts.
+`observed` contains only trusted execution state: status, files, checks, failures,
+rollback, warnings, and reliably targeted symbols. PatchShuttle does not infer
+workarounds, semantic meaning, relationships, or affected symbols it cannot prove.
+
+Read records without parsing human-readable logs:
+
+```powershell
+patchshuttle history list --limit 20
+patchshuttle history latest
+patchshuttle history latest PATCH-EXAMPLE-001
+patchshuttle history show PATCH-EXAMPLE-001/2026_08_27_120000_000001_abcdef01
+```
+
+`latest` and `show` return the full canonical JSON record. `list` returns bounded
+JSON summaries, one per line. Python integrations can call
+`list_history_records`, `latest_history_record`, and `read_history_record` from
+`patchshuttle.history`. External systems may also ingest the per-attempt JSON files
+directly.
+
+History writing occurs after the required detailed log and registry update. It is
+best-effort: a history storage failure is exposed through the Python result's
+`history_warning`, but does not turn a completed job into a failure or trigger
+rollback. Existing protocol-1 jobs require no changes. Existing workspaces may add
+`patches/history/**` to `project.ignored_paths`; new default configurations already
+exclude it from workspace inventories.
+
+The v1 layout is append-only and uses exclusive file creation. It deliberately has
+no database, JSONL index, semantic search, vector store, relationship graph, or
+Farm-specific behavior.
 
 ## Manual workflow
 

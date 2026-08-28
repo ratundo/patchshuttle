@@ -157,6 +157,30 @@ unchanged or improve. Migrations and generated code are excluded by default.
 Reports are bounded by `max_report_items`; `architecture_report_limited` tells
 you whether more findings existed. Never infer dependencies, feature ownership,
 semantic SRP, or a reorganization from these numeric findings alone.
+## Structured execution history
+
+Use structured history before loading a full execution log when investigating an
+older change. Start with `patchshuttle history list --limit N`, then use
+`patchshuttle history show JOB_ID/RECORD_ID` or `history latest [JOB_ID]`. Read the
+referenced detailed log only when exact action output, traceback, timing, or other
+diagnostic evidence is required.
+
+Treat `declared.title`, `declared.intent`, planned files, and symbol targets as
+submitted intent, not proof that the intended effect occurred. Treat `observed` as
+PatchShuttle execution facts. Do not promote either field into product requirements,
+user decisions, or semantic project memory. A generic external orchestrator may
+index the JSON records together with its own separate sources.
+
+Each attempt has a unique file under `patches/history/<job-id>/`. The record is
+bounded, schema-versioned, and references the detailed log and derived AI-log view.
+It excludes full stdout, full check output, patch contents, and large tracebacks.
+History persistence is secondary and best-effort; `history_warning` in the Python
+result means the job outcome remains authoritative but the external importer should
+inspect the detailed log and retry ingestion according to its own policy.
+
+Do not add inferred workarounds, relationships, affected symbols, semantic search,
+or Farm-specific state to PatchShuttle history. Store those in the orchestrator.
+
 ## Checks
 
 - `compileall`

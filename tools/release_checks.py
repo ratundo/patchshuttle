@@ -87,6 +87,11 @@ def _validate_wheel(wheel: Path, version: str) -> None:
         required = {
             "patchshuttle/_line_ranges.py",
             "patchshuttle/formatter_policy.py",
+            "patchshuttle/history/__init__.py",
+            "patchshuttle/history/cli.py",
+            "patchshuttle/history/models.py",
+            "patchshuttle/history/records.py",
+            "patchshuttle/history/storage.py",
             "patchshuttle/py.typed",
             "patchshuttle/resources/AI_GUIDE.md",
             "patchshuttle/resources/PATCHSHUTTLE_PROTOCOL.md",

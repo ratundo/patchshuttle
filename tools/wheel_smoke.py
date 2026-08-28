@@ -28,6 +28,7 @@ from patchshuttle import (
 )
 from patchshuttle.actions import create_file, hash, hash_range, replace_range
 from patchshuttle.checks import compileall, django_import_check
+from patchshuttle.history import HISTORY_SCHEMA_VERSION, latest_history_record
 
 root = Path.cwd() / "project"
 root.mkdir()
@@ -77,6 +78,11 @@ patch = Job(
 patched = execute_plan(plan_job(patch, workspace), approved=True)
 assert patched.status.value == "COMPLETED"
 assert (root / "hello.py").read_text("utf-8") == "VALUE = 1\n"
+patch_history = latest_history_record(workspace, job_id=patch.id)
+assert patch_history.schema_version == HISTORY_SCHEMA_VERSION == 1
+assert patch_history.job.id == patch.id
+assert patch_history.observed.status == "COMPLETED"
+assert patch_history.references.detailed_log.endswith("SMOKE-PATCH.log")
 
 legacy = Job(
     protocol=1,

@@ -12,6 +12,7 @@ from patchshuttle.backup import (
     update_loaded_backup,
 )
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, JobError
+from patchshuttle.history import try_write_history_record
 from patchshuttle.logging import (
     ManualRollbackLogRecord,
     RunLogData,
@@ -38,6 +39,8 @@ class ManualRollbackResult:
     removed_files: tuple[PurePosixPath, ...]
     removed_directories: tuple[PurePosixPath, ...]
     log_path: Path
+    history_path: Path | None = None
+    history_warning: str | None = None
 
 
 def rollback_job(
@@ -135,20 +138,19 @@ def rollback_job(
             removed_files=rollback.removed_files,
             removed_directories=rollback.removed_directories,
         )
-        log_path = write_run_log(
-            RunLogData(
-                workspace=workspace,
-                job=job,
-                job_hash=record.job_hash,
-                clock=clock,
-                result="ROLLED_BACK",
-                exit_code=0,
-                failure_stage=None,
-                failure_code=None,
-                archived_job_path=archived,
-                manual_rollback=log_record,
-            )
+        data = RunLogData(
+            workspace=workspace,
+            job=job,
+            job_hash=record.job_hash,
+            clock=clock,
+            result="ROLLED_BACK",
+            exit_code=0,
+            failure_stage=None,
+            failure_code=None,
+            archived_job_path=archived,
+            manual_rollback=log_record,
         )
+        log_path = write_run_log(data)
         update_registry(
             workspace,
             registry,
@@ -163,6 +165,7 @@ def rollback_job(
             completed=False,
             reset_completed=True,
         )
+        history = try_write_history_record(data, log_path=log_path)
         return ManualRollbackResult(
             job_id=job_id,
             job_hash=record.job_hash,
@@ -171,6 +174,8 @@ def rollback_job(
             removed_files=rollback.removed_files,
             removed_directories=rollback.removed_directories,
             log_path=log_path,
+            history_path=history.path,
+            history_warning=history.warning,
         )
 
 
@@ -185,28 +190,27 @@ def _record_failed_rollback(
     rollback: RollbackResult,
     error: ExecutionError,
 ) -> None:
-    log_path = write_run_log(
-        RunLogData(
-            workspace=workspace,
-            job=job,
-            job_hash=job_hash,
-            clock=clock,
-            result="ROLLBACK_FAILED",
-            exit_code=8,
-            failure_stage="ROLLBACK",
-            failure_code=(error.cause_code or error.code).value,
-            archived_job_path=archived,
-            error=error,
-            manual_rollback=ManualRollbackLogRecord(
-                status="FAILED",
-                backup_path=backup_path,
-                restored_files=rollback.restored_files,
-                removed_files=rollback.removed_files,
-                removed_directories=rollback.removed_directories,
-                unresolved=rollback.unresolved,
-            ),
-        )
+    data = RunLogData(
+        workspace=workspace,
+        job=job,
+        job_hash=job_hash,
+        clock=clock,
+        result="ROLLBACK_FAILED",
+        exit_code=8,
+        failure_stage="ROLLBACK",
+        failure_code=(error.cause_code or error.code).value,
+        archived_job_path=archived,
+        error=error,
+        manual_rollback=ManualRollbackLogRecord(
+            status="FAILED",
+            backup_path=backup_path,
+            restored_files=rollback.restored_files,
+            removed_files=rollback.removed_files,
+            removed_directories=rollback.removed_directories,
+            unresolved=rollback.unresolved,
+        ),
     )
+    log_path = write_run_log(data)
     update_registry(
         workspace,
         registry,
@@ -220,7 +224,10 @@ def _record_failed_rollback(
         archived_job_path=archived,
         completed=False,
     )
+    history = try_write_history_record(data, log_path=log_path)
     error.log_path = log_path
+    error.history_path = history.path
+    error.history_warning = history.warning
 
 
 def _find_archived_job(

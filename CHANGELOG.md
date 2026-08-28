@@ -5,6 +5,26 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased
 
+## 0.1.0a5 - 2026-08-28
+
+Fourth alpha release, focused on persistent structured execution history
+for bounded external retrieval and long-term orchestration.
+
+### Added
+
+- Schema-versioned, append-only structured job history records under
+  `patches/history/<job-id>/` separate declared intent from observed execution
+  facts, reference detailed logs, preserve successful, failed, declined, and
+  rollback attempts, and expose bounded read-only Python and CLI access. History
+  persistence is a best-effort secondary artifact and cannot change a job result
+  or trigger rollback.
+
+### Fixed
+
+- Structured history models retain the canonical external `schema` JSON key
+  without shadowing Pydantic's legacy `BaseModel.schema` attribute or emitting a
+  warning during command startup.
+
 ## 0.1.0a4 - 2026-08-27
 
 Third alpha release, focused on bounded Python source discovery, compact

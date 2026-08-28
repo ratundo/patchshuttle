@@ -11,7 +11,7 @@ import patchshuttle
 
 
 def test_public_version_matches_release_candidate() -> None:
-    assert patchshuttle.__version__ == "0.1.0a4"
+    assert patchshuttle.__version__ == "0.1.0a5"
 
 
 def test_build_metadata_stays_compatible_with_release_tooling() -> None:

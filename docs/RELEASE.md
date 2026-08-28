@@ -169,8 +169,9 @@ alignment gates for the new distributions.
 Future release candidates must retain explicit coverage for formatter
 baseline-versus-planned classification, per-tool local exclusions,
 `django_import_check`, rollback after runtime `.pyc` creation, bounded Python
-structure discovery, and architecture-ratchet evaluation. Plan and run logs must
-keep exposing resolved formatter and architecture decisions.
+structure discovery, architecture-ratchet evaluation, structured-history wheel
+contents, and clean-installed history persistence and retrieval. Plan and run
+logs must keep exposing resolved formatter and architecture decisions.
 
 ## 2. Publish the repository and run CI
 

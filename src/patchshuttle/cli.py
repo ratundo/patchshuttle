@@ -26,6 +26,7 @@ from patchshuttle.execution import (
     record_declined_plan,
     resolve_registered_job,
 )
+from patchshuttle.history.cli import history_command
 from patchshuttle.logging import (
     AttemptLogData,
     current_run_clock,
@@ -72,6 +73,9 @@ from patchshuttle.workspace import (
 )
 def main(workspace_path: Path | None) -> None:
     """Run local, auditable workflows for AI-assisted project changes."""
+
+
+main.add_command(history_command)
 
 
 @main.command()
@@ -328,10 +332,7 @@ def snapshot_command() -> None:
     except WorkspaceError as error:
         _fail_workspace(error, failure_prefix="SNAPSHOT_FAILED")
     except ExecutionError as error:
-        click.echo(
-            _render_execution_error(error, prefix="SNAPSHOT_FAILED"),
-            err=True,
-        )
+        click.echo(_render_execution_error(error, prefix="SNAPSHOT_FAILED"), err=True)
         raise click.exceptions.Exit(execution_exit_code(error.code)) from error
     click.echo(
         "\n".join(
@@ -355,10 +356,7 @@ def handoff_command() -> None:
     except WorkspaceError as error:
         _fail_workspace(error, failure_prefix="HANDOFF_FAILED")
     except ExecutionError as error:
-        click.echo(
-            _render_execution_error(error, prefix="HANDOFF_FAILED"),
-            err=True,
-        )
+        click.echo(_render_execution_error(error, prefix="HANDOFF_FAILED"), err=True)
         raise click.exceptions.Exit(execution_exit_code(error.code)) from error
     click.echo(
         "\n".join(

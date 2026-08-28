@@ -46,6 +46,7 @@ DEFAULT_PROTECTED_PATH_EXCEPTIONS = (
 DEFAULT_IGNORED_PATHS = (
     ".git/**",
     "patches/backups/**",
+    "patches/history/**",
     "patches/logs/**",
     "patches/state/**",
     "**/.venv/**",

@@ -118,6 +118,39 @@ and `ARCH021`. Plan and log summaries expose the active profile, organization,
 mode, status, evaluated and new counts, total findings, and report-limit flag.
 No source fragments are included. The policy does not add a job action, execute
 project code, infer dependencies, reorganize files, or alter patch targeting.
+## Structured history records
+
+Recorded execution attempts may produce a secondary JSON artifact under
+`patches/history/<job-id>/<record-id>.json`. The supported record declares
+`schema: patchshuttle.history.v1` and `schema_version: 1`. Files are created with
+exclusive append-only naming and are never selected by a protocol-1 job field.
+
+Top-level fields are `record_id`, `occurred_at`, `patchshuttle_version`,
+`project_id`, `job`, `redaction`, `declared`, `observed`, `references`, and
+`relationships`. In v1, `relationships` is `null` because protocol 1 has no trusted
+relationship metadata. `declared` contains bounded title, description-derived
+intent, plan counts, planned file paths, and explicit `replace_symbol` targets.
+`observed` contains terminal status and exit code, actual workspace changes, checks,
+failures, rollback, check warnings, and only symbols whose targeted file was
+observed as affected. `references` points to the detailed log, its non-persistent
+derived AI-log view, the archived job, and backup when applicable.
+
+The record does not copy command output, full check output, tracebacks, file or patch
+contents. It does not infer workarounds, requirements, semantics, relationships, or
+project memory. `job.description` remains declared intent even when it was authored
+by an AI agent.
+
+History persistence runs only after required operational recording. Any secondary
+write failure is non-fatal and cannot change the execution result or rollback state.
+Old jobs and old workspaces remain valid. New default workspaces ignore
+`patches/history/**` during inventories; existing owners may add the same local
+ignored path.
+
+Read-only interfaces are `history list [--job-id ID] [--limit N]`,
+`history latest [JOB_ID]`, and `history show JOB_ID/RECORD_ID`, plus the public
+functions exported by `patchshuttle.history`. Semantic retrieval and external
+database ingestion are outside the PatchShuttle protocol.
+
 ## Checks
 
 - `compileall`: non-empty `paths`, optional `quiet` from `0` through `2`.

@@ -26,5 +26,6 @@ Thumbs.db
 patches/applied/
 patches/backups/
 patches/failed/
+patches/history/
 patches/logs/
 patches/state/

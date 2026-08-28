@@ -18,6 +18,7 @@ from patchshuttle.audit import (
 from patchshuttle.checks import CheckResult
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, JobError
 from patchshuttle.formatters import FormattedFileState, FormatterResult
+from patchshuttle.history import try_write_history_record
 from patchshuttle.inventory import WorkspaceComparison
 from patchshuttle.linters import HtmlLintResult
 from patchshuttle.logging import (
@@ -77,6 +78,8 @@ class RunResult:
     audit_results: tuple[AuditActionResult, ...] = ()
     log_path: Path | None = None
     archived_job_path: Path | None = None
+    history_path: Path | None = None
+    history_warning: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,12 +91,16 @@ class RegisteredRunResult:
     job_hash: str
     log_path: Path
     archived_job_path: Path
+    history_path: Path | None = None
+    history_warning: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _Artifacts:
     log_path: Path
     archived_job_path: Path
+    history_path: Path | None = None
+    history_warning: str | None = None
 
 
 def execute_plan(
@@ -277,6 +284,8 @@ def resolve_registered_job(
             job_hash=job_hash,
             log_path=artifacts.log_path,
             archived_job_path=artifacts.archived_job_path,
+            history_path=artifacts.history_path,
+            history_warning=artifacts.history_warning,
         )
 
 
@@ -375,30 +384,27 @@ def _record_success(
         source=source,
         successful=True,
     )
-    log_path = write_run_log(
-        RunLogData(
-            workspace=workspace,
-            job=job,
-            job_hash=job_hash,
-            clock=clock,
-            result=result.value,
-            exit_code=0,
-            failure_stage=None,
-            failure_code=None,
-            archived_job_path=archived,
-            plan=plan,
-            transaction=transaction,
-            audit_results=(audit_run.results if audit_run is not None else ()),
-            verification_checks=(
-                verification.checks if verification is not None else ()
-            ),
-            workspace_comparison=(
-                verification.workspace_comparison
-                if verification is not None
-                else (audit_run.workspace_comparison if audit_run is not None else None)
-            ),
-        )
+    data = RunLogData(
+        workspace=workspace,
+        job=job,
+        job_hash=job_hash,
+        clock=clock,
+        result=result.value,
+        exit_code=0,
+        failure_stage=None,
+        failure_code=None,
+        archived_job_path=archived,
+        plan=plan,
+        transaction=transaction,
+        audit_results=(audit_run.results if audit_run is not None else ()),
+        verification_checks=(verification.checks if verification is not None else ()),
+        workspace_comparison=(
+            verification.workspace_comparison
+            if verification is not None
+            else (audit_run.workspace_comparison if audit_run is not None else None)
+        ),
     )
+    log_path = write_run_log(data)
     update_registry(
         workspace,
         registry,
@@ -412,7 +418,13 @@ def _record_success(
         archived_job_path=archived,
         completed=True,
     )
-    return _Artifacts(log_path=log_path, archived_job_path=archived)
+    history = try_write_history_record(data, log_path=log_path)
+    return _Artifacts(
+        log_path=log_path,
+        archived_job_path=archived,
+        history_path=history.path,
+        history_warning=history.warning,
+    )
 
 
 def _record_error(
@@ -435,21 +447,20 @@ def _record_error(
         source=source,
         successful=False,
     )
-    log_path = write_run_log(
-        RunLogData(
-            workspace=workspace,
-            job=job,
-            job_hash=job_hash,
-            clock=clock,
-            result=result,
-            exit_code=execution_exit_code(error.code),
-            failure_stage=_failure_stage(error, plan),
-            failure_code=failure_code,
-            archived_job_path=archived,
-            plan=plan,
-            error=error,
-        )
+    data = RunLogData(
+        workspace=workspace,
+        job=job,
+        job_hash=job_hash,
+        clock=clock,
+        result=result,
+        exit_code=execution_exit_code(error.code),
+        failure_stage=_failure_stage(error, plan),
+        failure_code=failure_code,
+        archived_job_path=archived,
+        plan=plan,
+        error=error,
     )
+    log_path = write_run_log(data)
     rollback = _rollback_state(error)
     update_registry(
         workspace,
@@ -464,7 +475,13 @@ def _record_error(
         archived_job_path=archived,
         completed=False,
     )
-    return _Artifacts(log_path=log_path, archived_job_path=archived)
+    history = try_write_history_record(data, log_path=log_path)
+    return _Artifacts(
+        log_path=log_path,
+        archived_job_path=archived,
+        history_path=history.path,
+        history_warning=history.warning,
+    )
 
 
 def _public_result(
@@ -512,6 +529,8 @@ def _public_result(
         audit_results=(audit_run.results if audit_run is not None else ()),
         log_path=artifacts.log_path,
         archived_job_path=artifacts.archived_job_path,
+        history_path=artifacts.history_path,
+        history_warning=artifacts.history_warning,
     )
 
 
@@ -524,6 +543,8 @@ def _already_applied_result(plan: Plan, artifacts: _Artifacts) -> RunResult:
         created_directories=(),
         log_path=artifacts.log_path,
         archived_job_path=artifacts.archived_job_path,
+        history_path=artifacts.history_path,
+        history_warning=artifacts.history_warning,
     )
 
 
@@ -649,6 +670,8 @@ def _conflict_error(job_id: str) -> ExecutionError:
 def _attach_artifacts(error: ExecutionError, artifacts: _Artifacts) -> None:
     error.log_path = artifacts.log_path
     error.archived_job_path = artifacts.archived_job_path
+    error.history_path = artifacts.history_path
+    error.history_warning = artifacts.history_warning
 
 
 __all__ = [

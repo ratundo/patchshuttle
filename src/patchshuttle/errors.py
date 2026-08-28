@@ -268,6 +268,8 @@ class ExecutionError(RuntimeError):
         workspace_comparison: WorkspaceComparison | None = None,
         log_path: Path | None = None,
         archived_job_path: Path | None = None,
+        history_path: Path | None = None,
+        history_warning: str | None = None,
     ) -> None:
         self.code = code
         self.message = message
@@ -285,6 +287,8 @@ class ExecutionError(RuntimeError):
         self.workspace_comparison = workspace_comparison
         self.log_path = log_path
         self.archived_job_path = archived_job_path
+        self.history_path = history_path
+        self.history_warning = history_warning
         super().__init__(message)
 
     def __str__(self) -> str:

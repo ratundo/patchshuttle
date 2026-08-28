@@ -78,14 +78,14 @@ def test_version_option_reports_distribution_version() -> None:
     result = CliRunner().invoke(main, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output == "patchshuttle, version 0.1.0a4\n"
+    assert result.output == "patchshuttle, version 0.1.0a5\n"
 
 
 def test_version_command_reports_distribution_version() -> None:
     result = CliRunner().invoke(main, ["version"])
 
     assert result.exit_code == 0
-    assert result.output == "PatchShuttle 0.1.0a4\n"
+    assert result.output == "PatchShuttle 0.1.0a5\n"
 
 
 def test_help_lists_only_the_implemented_commands() -> None:

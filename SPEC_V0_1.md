@@ -410,6 +410,36 @@ The policy is structural only: it does not inspect source semantics, infer
 features or dependencies, build graphs, reorganize files, or choose patch scope.
 Disabling or changing thresholds requires an owner edit to
 `patches/patchshuttle.toml`.
+### 9.2 Persistent structured job history
+
+PatchShuttle records compact facts about its own execution attempts separately from
+full diagnostic logs. A history record is a schema-versioned JSON projection of the
+same trusted run state used by logging. It separates submitted intent from observed
+execution facts and references, rather than duplicates, detailed evidence.
+
+Version 1 uses one exclusive file per attempt under
+`patches/history/<job-id>/<record-id>.json`. Multiple attempts for the same job ID
+never overwrite one another. Readers validate schema, project identity, record/path
+identity, real-file boundaries, and size and scan limits. External orchestrators may
+ingest these files into their own databases and indexes.
+
+Required content includes PatchShuttle and schema versions, job identity and hash,
+timestamp, result and exit code, bounded declared title and description intent,
+planned counts and targets, observed file changes, executed checks, failure and
+rollback facts, check warnings, and references to detailed log, derived AI-log view,
+archived job, and backup. Affected symbols are included only when an explicit
+`replace_symbol` target corresponds to an observed affected file. Relationships are
+`null` in v1 because protocol 1 supplies no authoritative relationship metadata.
+
+History creation is a best-effort secondary operation after log and registry
+persistence. Failure to create it does not fail or roll back an otherwise completed
+job. The Python result exposes the bounded warning. Existing job schemas, normalized
+hashes, registry semantics, logs, and AI-log formats remain unchanged.
+
+PatchShuttle does not store conversations, requirements, product decisions, stages,
+artifacts, runtime history, semantic memory, or vector indexes. Those remain the
+responsibility of external orchestration systems.
+
 ## 10. YAML job protocol
 
 ### 10.1 Canonical extension
@@ -1957,6 +1987,17 @@ has been tested through a documented end-to-end scenario.
   `f0f6188b6e81727401152023d701f0e065fcc481` passed final `main` and tag CI,
   TestPyPI and production Trusted Publishing, and a clean production-index
   Windows CPython 3.14 installation on 2026-08-27.
+### `0.1.0a5`
+
+- schema-versioned append-only structured records for PatchShuttle job
+  attempts, with declared intent kept separate from observed execution facts;
+- compact file, check, failure, rollback, warning, and diagnostic-reference
+  metadata without full command output, patch contents, or project memory;
+- best-effort secondary persistence that cannot change an authoritative job
+  result or trigger rollback;
+- bounded read-only Python and CLI retrieval for external ingestion, without a
+  database, semantic search, relationship graph, or orchestrator-specific state.
+
 ### `0.1.0b1`
 
 - AI guide and handoff;
