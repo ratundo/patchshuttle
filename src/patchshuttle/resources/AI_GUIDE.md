@@ -370,3 +370,13 @@ failures cannot write a log before a workspace is selected.
 
 See `PATCHSHUTTLE_PROTOCOL.md` and `patchshuttle.schema.json` for the detailed
 syntax.
+
+## Structural symbol guards
+
+`read_symbol` reports `ast_sha256` and `ast_python` in addition to the text
+hash. Use `expected_ast_sha256` for formatting-independent `replace_symbol`
+guards on the same Python minor version. Ordinary comments are not guarded;
+include `expected_sha256` too if exact comment/source preservation matters.
+Both supplied guards must match. Keep the symbol name, declaration kind and
+destination indentation in `new_content`. The final module is compiled without
+execution. This feature does not implement import rewriting or code moves.

@@ -863,7 +863,9 @@ Fields:
 
 - `path`: required existing Python text file;
 - `symbol`: required dotted class, function, method, or nested-symbol name;
-- `expected_sha256`: required canonical hash returned by `read_symbol`;
+- `expected_sha256`: optional canonical text hash returned by `read_symbol`;
+- `expected_ast_sha256`: optional structural hash returned by `read_symbol`;
+- at least one hash is required; when both are supplied both must match;
 - `new_content`: required complete replacement source.
 
 Planning parses the current sequential simulated file without importing it,
@@ -873,6 +875,15 @@ stale targets fail without fuzzy relocation or automatic line shifting. Exact
 desired symbol content returns `NO_CHANGE`. Execution publishes the planner's
 final file bytes through the normal guarded transaction, backup, check,
 workspace-comparison, and rollback lifecycle.
+
+With `expected_ast_sha256`, whitespace and ordinary comment differences do not
+invalidate the guard. Hashes include AST fields but exclude source positions,
+and are scoped to the `ast_python` major/minor version reported by the audit.
+Docstrings, decorators and annotations remain part of the AST. The replacement
+must be one declaration of the same name and kind, the final module must compile
+without execution, and the qualified target must still resolve uniquely.
+Use the text guard as well when comment changes must invalidate the job.
+Old text-guarded jobs retain their normalized serialization and registry hash.
 
 ### 13.5 `insert_before`
 

@@ -478,6 +478,13 @@ rejects missing, duplicate, syntactically invalid, or stale targets, and does
 not use fuzzy relocation or automatic line shifting. Exact desired symbol
 content is an idempotent `NO_CHANGE`.
 
+The optional `expected_ast_sha256` guard uses the structural hash from
+`read_symbol` to tolerate formatting changes. It ignores ordinary comments,
+includes docstrings and decorators, and is scoped to the reported Python minor
+version. Supply the text hash too when comments must be guarded. AST-guarded
+replacements retain the name and kind and undergo compile and resolution
+validation. See [next-release work](docs/NEXT_RELEASE.md) for current scope.
+
 For a supported plan, the implemented sequence is:
 
 1. validate the workspace lock file and acquire a non-blocking cross-platform

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import sys
 from dataclasses import dataclass
 
 from patchshuttle._line_ranges import CanonicalLineRange, select_line_range
@@ -14,6 +16,7 @@ class PythonSymbolSource:
 
     kind: str
     selected: CanonicalLineRange
+    ast_sha256: str
 
 
 def find_symbol_source(
@@ -55,4 +58,13 @@ def find_symbol_source(
         ast.FunctionDef: "function",
         ast.AsyncFunctionDef: "async_function",
     }[type(current)]
-    return PythonSymbolSource(kind=kind, selected=selected)
+    return PythonSymbolSource(
+        kind=kind, selected=selected, ast_sha256=structural_hash(current)
+    )
+
+
+def structural_hash(node: ast.AST) -> str:
+    """Hash AST fields without source positions, scoped to this Python minor version."""
+    payload = f"patchshuttle.ast.v1:{sys.version_info.major}.{sys.version_info.minor}:"
+    payload += ast.dump(node, annotate_fields=True, include_attributes=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()

@@ -82,8 +82,12 @@ patch scope. The normal audit output limit remains authoritative.
 - `create_directory`: `path`.
 - `create_file`: `path`, `content`, optional `encoding` and `newline`.
 - `replace_exact`: `path`, `old`, `new`, `expected_count`.
-- `replace_symbol`: `path`, dotted `symbol`, `expected_sha256`, and
-  `new_content`. The hash is the canonical value returned by `read_symbol`.
+- `replace_symbol`: `path`, dotted `symbol`, and `new_content`, plus
+  `expected_sha256` and/or `expected_ast_sha256` from `read_symbol`.
+  Both must match when both are supplied. The AST guard ignores formatting
+  and ordinary comments and is scoped to the reported `ast_python` version.
+  AST-guarded replacements must preserve the declaration name and kind,
+  compile without execution, and retain unique qualified-symbol resolution.
 - `insert_before`: `path`, `anchor`, `content`, `expected_count`.
 - `insert_after`: `path`, `anchor`, `content`, `expected_count`.
 - `delete_exact`: `path`, `text`, `expected_count`.

@@ -108,6 +108,8 @@ def test_prepare_formatters_builds_fixed_scoped_commands(
     assert prepared[0].argv == (
         sys.executable,
         "-I",
+        "-X",
+        "utf8",
         "-m",
         "isort",
         "--overwrite-in-place",
@@ -117,6 +119,8 @@ def test_prepare_formatters_builds_fixed_scoped_commands(
     assert prepared[1].argv == (
         sys.executable,
         "-I",
+        "-X",
+        "utf8",
         "-m",
         "black",
         "--no-cache",

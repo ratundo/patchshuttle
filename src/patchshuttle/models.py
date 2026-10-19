@@ -13,6 +13,7 @@ from pydantic import (
     Field,
     RootModel,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -157,13 +158,27 @@ class ReplaceExactParameters(_FrozenModel):
 class ReplaceSymbolParameters(_FrozenModel):
     path: NonEmptyString
     symbol: PythonSymbol
-    expected_sha256: Sha256Hex
+    expected_sha256: Sha256Hex | None = None
+    expected_ast_sha256: Sha256Hex | None = None
     new_content: StrictString
 
-    @field_validator("expected_sha256")
+    @field_validator("expected_sha256", "expected_ast_sha256")
     @classmethod
-    def normalize_expected_sha256(cls, value: str) -> str:
-        return value.casefold()
+    def normalize_expected_sha256(cls, value: str | None) -> str | None:
+        return value.casefold() if value is not None else None
+
+    @model_serializer(mode="wrap")
+    def serialize_guards(self, handler):
+        payload = handler(self)
+        if self.expected_ast_sha256 is None:
+            payload.pop("expected_ast_sha256", None)
+        return payload
+
+    @model_validator(mode="after")
+    def require_guard(self) -> ReplaceSymbolParameters:
+        if self.expected_sha256 is None and self.expected_ast_sha256 is None:
+            raise ValueError("at least one symbol guard is required")
+        return self
 
 
 class InsertBeforeParameters(_FrozenModel):

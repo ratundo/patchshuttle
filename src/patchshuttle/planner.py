@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import codecs
 import difflib
 import hashlib
 import json
 import re
 import shutil
+import textwrap
 from dataclasses import dataclass, field
 from enum import Enum
 from importlib.util import find_spec
@@ -615,7 +617,13 @@ class _Planner:
         if replacement == selected.content:
             updated = state.text
             guard_status = "ALREADY_APPLIED"
-        elif parameters.expected_sha256 != selected.sha256:
+        elif (
+            parameters.expected_sha256 is not None
+            and parameters.expected_sha256 != selected.sha256
+        ) or (
+            parameters.expected_ast_sha256 is not None
+            and parameters.expected_ast_sha256 != source.ast_sha256
+        ):
             raise self._error(
                 PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
                 "Python symbol guard does not match the current simulated file",
@@ -627,6 +635,8 @@ class _Planner:
                     f"  lines: {selected.start_line}-{selected.end_line}",
                     f"  expected_sha256: {parameters.expected_sha256}",
                     f"  actual_sha256: {selected.sha256}",
+                    f"  expected_ast_sha256: {parameters.expected_ast_sha256}",
+                    f"  actual_ast_sha256: {source.ast_sha256}",
                 ),
             )
         else:
@@ -636,6 +646,38 @@ class _Planner:
                 + state.text[selected.end_offset :]
             )
             guard_status = "PASS"
+
+        if parameters.expected_ast_sha256 is not None:
+            try:
+                replacement_tree = ast.parse(textwrap.dedent(replacement))
+                expected_type = {
+                    "class": ast.ClassDef,
+                    "function": ast.FunctionDef,
+                    "async_function": ast.AsyncFunctionDef,
+                }[source.kind]
+                if (
+                    len(replacement_tree.body) != 1
+                    or not isinstance(replacement_tree.body[0], expected_type)
+                    or replacement_tree.body[0].name != parameters.symbol.split(".")[-1]
+                ):
+                    raise ValueError(
+                        "replacement must contain exactly the same symbol name and kind"
+                    )
+                compile(updated, path.as_posix(), "exec", dont_inherit=True)
+                resolved = find_symbol_source(
+                    updated, parameters.symbol, filename=str(path)
+                )
+                if resolved is None or resolved.kind != source.kind:
+                    raise ValueError(
+                        "replacement must preserve unique symbol resolution"
+                    )
+            except (SyntaxError, ValueError) as exc:
+                raise self._error(
+                    PlanningErrorCode.PYTHON_SOURCE_INVALID,
+                    f"structural replacement failed validation: {exc}",
+                    item_id,
+                    path=path.as_posix(),
+                ) from exc
 
         disposition = self._update_state(state, updated, item_id=item_id)
         self.action_plans.append(
@@ -648,7 +690,8 @@ class _Planner:
                     f"symbol: {parameters.symbol}; kind: {source.kind}; "
                     f"lines: {selected.start_line}-{selected.end_line}; "
                     f"guard_status: {guard_status}; "
-                    f"actual_sha256: {selected.sha256}"
+                    f"actual_sha256: {selected.sha256}; "
+                    f"actual_ast_sha256: {source.ast_sha256}"
                 ),
             )
         )

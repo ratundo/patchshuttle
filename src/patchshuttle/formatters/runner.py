@@ -138,6 +138,8 @@ def prepare_formatters(plan: Plan) -> tuple[PreparedFormatter, ...]:
                 argv=(
                     sys.executable,
                     "-I",
+                    "-X",
+                    "utf8",
                     "-m",
                     name,
                     *options,

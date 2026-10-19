@@ -78,11 +78,11 @@ example:
     "replace_symbol": """\
 category: change_action
 summary: Replace one exactly resolved decorator-aware Python symbol.
-fields: path, dotted symbol, expected_sha256, and new_content (required)
+fields: path, dotted symbol, and new_content (required); expected_sha256 and/or expected_ast_sha256 (at least one required)
 planning: Resolution and guard validation use the current sequential simulated file state.
-canonicalization: The guard is read_symbol SHA-256 over canonical LF UTF-8 symbol source.
+canonicalization: expected_sha256 uses canonical LF UTF-8 source; expected_ast_sha256 uses read_symbol ast_sha256, ignoring formatting and comments. AST hashes are specific to the reported Python minor version. When both guards are supplied both must match.
 idempotency: Exact desired symbol content becomes NO_CHANGE even when the prior guard no longer matches.
-safety: Syntax, missing or duplicate resolution, and hash mismatches fail without fuzzy relocation or line shifting.
+safety: AST-guarded replacements must retain one declaration with the same name and kind, compile successfully, and preserve unique resolution. Missing or duplicate resolution and hash mismatches fail without fuzzy relocation.
 example:
   - replace_symbol:
       path: src/example.py

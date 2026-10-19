@@ -7,6 +7,7 @@ import os
 import platform
 import shutil
 import stat
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -366,6 +367,8 @@ def _read_symbol(plan: Plan, parameters) -> str:
             "canonical_encoding: utf-8",
             "canonical_newline: lf",
             f"sha256: {selected.sha256}",
+            f"ast_sha256: {source.ast_sha256}",
+            f"ast_python: {sys.version_info.major}.{sys.version_info.minor}",
             *(
                 f"{number:>6}: {lines[number - 1]}"
                 for number in range(

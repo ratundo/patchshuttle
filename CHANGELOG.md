@@ -5,6 +5,19 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased
 
+### Added
+
+- Optional AST guards for `replace_symbol`, with hashes and Python version
+  reported by `read_symbol`, replacement declaration validation and compile
+  validation. Existing text-only job serialization remains compatible.
+
+### Changed
+
+- Formatter child interpreters and Black preflight explicitly enable Python
+  UTF-8 mode, including under isolated execution.
+
+See `docs/NEXT_RELEASE.md` for implemented scope and remaining release work.
+
 ## 0.1.0a5 - 2026-08-28
 
 Fourth alpha release, focused on persistent structured execution history
