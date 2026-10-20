@@ -63,34 +63,13 @@ the original traceback before claiming that incident is resolved.
    focused tests and architecture evaluation. Never claim arbitrary Python
    behavior is preserved merely because both files compile.
 
-## Result retrieval: deployment choice still needed
+## Result retrieval and Django migrations
 
-The existing structured history is the source for retrieval. A read-only MCP
-adapter or authenticated HTTPS endpoint can expose bounded `history.list`,
-`history.latest` and `history.show` results. Do not include arbitrary file
-reads, arbitrary command execution, or raw log uploads by default. Choose
-where the adapter runs and how the AI client reaches it before implementing
-a transport. Local stdio MCP and remote ChatGPT connections have different
-deployment requirements. Existing CLI history is not itself an active remote
-integration.
-
-## Database migrations: adapter choice still needed
-
-Choose initial support: Django migrations, Alembic, or explicit PostgreSQL
-migrations. Keep DB execution separate from filesystem transactions.
-Requirements for each supported adapter:
-
-- Explicit database identity/alias and migration target, with credentials
-  resolved by owner configuration rather than job content.
-- A read-only plan and preconditions before execution; a lock and a durable
-  journal with migration identity/checksum, start/end, outcome and checks.
-- Distinguish not started, applied, failed and uncertain-after-interruption;
-  do not automatically replay uncertain migrations.
-- Explicit postconditions and repeat-run/idempotency behavior.
-- Declare reversibility and backup/recovery requirements. Filesystem rollback
-  must never be reported as a database rollback. Nontransactional operations
-  need their own recovery procedure. Destructive reversals require an explicit
-  requested operation; do not infer them from a failed test.
+The owner selected ChatGPT retrieval and Django migrations. Optional adapters
+are now implemented. See `CHATGPT_INTEGRATION.md` for OAuth resource-server
+configuration and `DJANGO_MIGRATIONS.md` for migration review, journal and recovery.
+The user's live OAuth/ChatGPT deployment is not configured. PostgreSQL 16
+qualification runs in the new CI service job; local integration tests use SQLite.
 
 ## Release gates
 

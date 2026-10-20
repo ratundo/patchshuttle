@@ -7,6 +7,8 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ### Added
 
+- Optional authenticated MCP history server for ChatGPT, scoped to one workspace and OAuth subject.
+- Optional Django migration command with hashed plans, database locks, pre/post checks, explicit reversals and separate recovery journals.
 - Guarded `move_range` and `move_symbol` source transfers between files,
   including destination fingerprints, structural validation, Python constructors,
   and shared transaction rollback.

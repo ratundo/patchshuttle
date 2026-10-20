@@ -1015,3 +1015,9 @@ Subsequent edits to the destination are supported. Case-only moves, chains,
 swaps, binary files and reuse of the vacated path are currently rejected.
 A failed check restores the source and removes the destination. Manual rollback
 also verifies the applied state and refuses to overwrite a recreated source.
+
+
+## Optional integrations
+
+- `patchshuttle[mcp]`: authenticated, read-only history retrieval for ChatGPT. See [setup and deployment limits](docs/CHATGPT_INTEGRATION.md).
+- `patchshuttle[django]`: reviewed migration plans, explicit execution/reversal, and a separate recovery journal. See [Django workflow](docs/DJANGO_MIGRATIONS.md).
