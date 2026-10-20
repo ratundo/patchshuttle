@@ -379,4 +379,41 @@ guards on the same Python minor version. Ordinary comments are not guarded;
 include `expected_sha256` too if exact comment/source preservation matters.
 Both supplied guards must match. Keep the symbol name, declaration kind and
 destination indentation in `new_content`. The final module is compiled without
-execution. This feature does not implement import rewriting or code moves.
+execution. The AST guard itself does not rewrite imports; use the explicit transfer actions below for source moves.
+
+
+## Guarded source transfers
+
+- `move_range`: `path`, `start_line`, `end_line`, source `expected_content`
+  and/or `expected_sha256`, `destination`, `destination_line` and
+  `expected_destination_sha256`.
+- `move_symbol`: `path`, `symbol`, `expected_ast_sha256`, `destination`,
+  `expected_destination_sha256` and optional `destination_class`.
+
+Destination hashes cover simulated raw bytes; source range hashes cover
+canonical LF/UTF-8 text. Destinations must exist or be created earlier in the
+same job. Range insertion is before the 1-based destination line; EOF+1 appends.
+Symbol insertion appends at module scope or to the named class. Both files are
+validated and participate in the same backup/check/rollback transaction.
+
+Same-file transfers, case-only path differences, duplicate destination names,
+closure extraction, class-bound super/private-name moves and multiline-string
+reindentation are rejected. Imports and callers are not automatically rewritten;
+include explicit edits and focused project checks. These actions move source
+content and leave the source file present. Whole-file moves are separate work.
+
+
+## Whole-file transfers
+
+`move_file` moves an existing supported text file to an absent destination.
+Supply `path`, `destination`, and `expected_sha256` of the original raw bytes.
+The transaction preserves original bytes and permissions, creates missing
+parent directories, and reports the source in `deleted_files`. Formatters and
+checks target the surviving destination. Add explicit import and caller edits
+when moving Python modules; imports are not automatically rewritten.
+
+The source and destination must not have been touched earlier in the job.
+Subsequent edits to the destination are supported. Case-only moves, chains,
+swaps, binary files and reuse of the vacated path are currently rejected.
+A failed check restores the source and removes the destination. Manual rollback
+also verifies the applied state and refuses to overwrite a recreated source.

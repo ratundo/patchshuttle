@@ -51,6 +51,18 @@ def atomic_replace_file(
     )
 
 
+def remove_planned_file(workspace: Workspace, change: PlannedFileChange) -> None:
+    target = _require_file(Policy(workspace), change.path)
+    _require_planned_original(target, change)
+    target.absolute.unlink()
+
+
+def verify_removed_file(workspace: Workspace, change: PlannedFileChange) -> None:
+    target = Policy(workspace).resolve(change.path, allow_missing=True)
+    if target.kind is not PathKind.MISSING:
+        raise OSError(f"removed file reappeared: {change.path}")
+
+
 def verify_modified_file(
     workspace: Workspace,
     change: PlannedFileChange,

@@ -525,6 +525,7 @@ def _plan_section(plan: Plan | None) -> str:
         ),
         f"files_to_create: {_json_paths(plan.files_to_create)}",
         f"files_to_modify: {_json_paths(plan.files_to_modify)}",
+        f"files_to_delete: {_json_paths(plan.files_to_delete)}",
         f"directories_to_create: {_json_paths(plan.directories_to_create)}",
         f"architecture_profile: {plan.architecture_report.profile}",
         "architecture_organization: " f"{plan.architecture_report.organization}",

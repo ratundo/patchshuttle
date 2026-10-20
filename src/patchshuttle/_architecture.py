@@ -118,7 +118,9 @@ def evaluate_architecture(
         and _is_python_path(entry.path)
         and not _is_excluded(policy, exclusions, entry.path)
     }
-    after_paths = before_paths | {change.path for change in changes}
+    after_paths = (before_paths | {change.path for change in changes}) - {
+        change.path for change in changes if getattr(change, "deleted", False)
+    }
     before_packages = _package_counts(before_paths)
     after_packages = _package_counts(after_paths)
     touched_packages = {change.path.parent for change in changes}

@@ -7,6 +7,12 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ### Added
 
+- Guarded `move_range` and `move_symbol` source transfers between files,
+  including destination fingerprints, structural validation, Python constructors,
+  and shared transaction rollback.
+- Guarded `move_file` with destination absence checks, byte/mode preservation,
+  explicit deleted-file reporting, and automatic and manual rollback.
+
 - Optional AST guards for `replace_symbol`, with hashes and Python version
   reported by `read_symbol`, replacement declaration validation and compile
   validation. Existing text-only job serialization remains compatible.

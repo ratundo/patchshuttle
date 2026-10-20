@@ -245,6 +245,42 @@ class InsertAtLineParameters(_FrozenModel):
         return self
 
 
+class MoveFileParameters(_FrozenModel):
+    path: NonEmptyString
+    destination: NonEmptyString
+    expected_sha256: Sha256Hex
+
+    @field_validator("expected_sha256")
+    @classmethod
+    def normalize_hash(cls, value: str) -> str:
+        return value.casefold()
+
+
+class MoveRangeParameters(_GuardedLineRangeParameters):
+    destination: NonEmptyString
+    destination_line: PositiveInteger
+    expected_destination_sha256: Sha256Hex
+
+    @field_validator("expected_destination_sha256")
+    @classmethod
+    def normalize_destination_hash(cls, value: str) -> str:
+        return value.casefold()
+
+
+class MoveSymbolParameters(_FrozenModel):
+    path: NonEmptyString
+    symbol: PythonSymbol
+    expected_ast_sha256: Sha256Hex
+    destination: NonEmptyString
+    destination_class: PythonSymbol | None = None
+    expected_destination_sha256: Sha256Hex
+
+    @field_validator("expected_ast_sha256", "expected_destination_sha256")
+    @classmethod
+    def normalize_hash(cls, value: str) -> str:
+        return value.casefold()
+
+
 class ApplyDiffParameters(_FrozenModel):
     diff: NonEmptyString
     strip: DiffStrip = 1
@@ -397,6 +433,18 @@ class InsertAtLineAction(_FrozenModel):
     insert_at_line: InsertAtLineParameters
 
 
+class MoveFileAction(_FrozenModel):
+    move_file: MoveFileParameters
+
+
+class MoveRangeAction(_FrozenModel):
+    move_range: MoveRangeParameters
+
+
+class MoveSymbolAction(_FrozenModel):
+    move_symbol: MoveSymbolParameters
+
+
 class ApplyDiffAction(_FrozenModel):
     apply_diff: ApplyDiffParameters
 
@@ -425,6 +473,9 @@ ActionValue: TypeAlias = (
     | DeleteRangeAction
     | InsertAtLineAction
     | ApplyDiffAction
+    | MoveFileAction
+    | MoveRangeAction
+    | MoveSymbolAction
 )
 ActionName: TypeAlias = Literal[
     "tree",
@@ -450,6 +501,9 @@ ActionName: TypeAlias = Literal[
     "delete_range",
     "insert_at_line",
     "apply_diff",
+    "move_file",
+    "move_range",
+    "move_symbol",
 ]
 
 _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
@@ -476,6 +530,9 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "delete_range": DeleteRangeAction,
     "insert_at_line": InsertAtLineAction,
     "apply_diff": ApplyDiffAction,
+    "move_file": MoveFileAction,
+    "move_range": MoveRangeAction,
+    "move_symbol": MoveSymbolAction,
 }
 
 AUDIT_ACTION_NAMES = frozenset(
@@ -507,6 +564,9 @@ CHANGE_ACTION_NAMES = frozenset(
         "delete_range",
         "insert_at_line",
         "apply_diff",
+        "move_file",
+        "move_range",
+        "move_symbol",
     }
 )
 

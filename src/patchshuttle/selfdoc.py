@@ -34,6 +34,9 @@ CHANGE_ACTIONS = (
     "delete_range",
     "insert_at_line",
     "apply_diff",
+    "move_file",
+    "move_range",
+    "move_symbol",
 )
 CHECKS = (
     "compileall",
@@ -50,6 +53,21 @@ CHECKS = (
 FORMATTERS = ("isort", "black")
 
 _EXPLANATIONS = {
+    "move_file": """category: change_action
+summary: Move one existing text file to a missing destination inside the workspace.
+fields: path, destination, expected_sha256 (raw source byte hash)
+planning: Requires untouched source/destination paths. Preserves source bytes and mode; destination may be edited later in the job. Imports and references require explicit edits.
+safety: Both ends are journaled; missing source state is verified; rollback restores source and removes destination. Reuse of the moved source and case-only moves are rejected.""",
+    "move_range": """category: change_action
+summary: Transfer guarded physical lines between distinct files in one transaction.
+fields: path, start_line, end_line, destination, destination_line, expected_destination_sha256; expected_content and/or expected_sha256
+planning: destination_line inserts before that line, or EOF+1. Destination must exist or be created earlier in the job. Hash its simulated raw bytes.
+safety: Both files are backed up and checked. Python outputs must compile. No implicit newline is added to a moved range.""",
+    "move_symbol": """category: change_action
+summary: Transfer a guarded Python declaration between distinct files.
+fields: path, symbol, expected_ast_sha256, destination, expected_destination_sha256; optional destination_class
+planning: Appends at module level or to the named class. Both resulting modules must compile and the moved AST must match. Destination must already exist or be created earlier in the job.
+safety: Rejects destination name collisions, nested closures and class-bound super/private-name transfers. Reindent of multiline strings is rejected. Imports and callers require explicit edits and project tests.""",
     "create_directory": """\
 category: change_action
 summary: Create one missing directory inside the workspace.

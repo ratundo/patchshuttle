@@ -9,14 +9,17 @@ import hashlib
 import json
 import re
 import shutil
+import stat
 import textwrap
-from dataclasses import dataclass, field
+import tokenize
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from importlib.util import find_spec
 from os import PathLike
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+from patchshuttle import _refactor
 from patchshuttle._architecture import (
     ArchitectureReport,
     disabled_architecture_report,
@@ -64,6 +67,7 @@ class FileDisposition(str, Enum):
 
     CREATE = "CREATE"
     MODIFY = "MODIFY"
+    DELETE = "DELETE"
 
 
 class NewlineStyle(str, Enum):
@@ -108,6 +112,11 @@ class PlannedFileChange:
     newline: NewlineStyle
     before_content: bytes | None = field(repr=False)
     content: bytes = field(repr=False)
+    mode: int | None = None
+
+    @property
+    def deleted(self) -> bool:
+        return self.disposition is FileDisposition.DELETE
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +176,10 @@ class Plan:
             for change in self.file_changes
             if change.disposition is FileDisposition.MODIFY
         )
+
+    @property
+    def files_to_delete(self) -> tuple[PurePosixPath, ...]:
+        return tuple(change.path for change in self.file_changes if change.deleted)
 
     @property
     def requires_confirmation(self) -> bool:
@@ -261,6 +274,8 @@ class _Planner:
         self.action_plans: list[PlannedAction] = []
         self.check_plans: list[PlannedCheck] = []
         self.files: dict[PurePosixPath, _TextState] = {}
+        self.deleted: set[PurePosixPath] = set()
+        self.created_modes: dict[PurePosixPath, int] = {}
         self.created_directories: dict[PurePosixPath, None] = {}
         self.fingerprints: dict[PurePosixPath, PathFingerprint] = {}
         self.max_file_bytes = workspace.config.execution.max_single_file_bytes
@@ -494,6 +509,10 @@ class _Planner:
             self._plan_create_directory(action, item_id=item_id)
         elif action.name == "create_file":
             self._plan_create_file(action, item_id=item_id)
+        elif action.name == "move_file":
+            self._plan_file_move(action, item_id=item_id)
+        elif action.name in {"move_range", "move_symbol"}:
+            self._plan_transfer(action, item_id=item_id)
         elif action.name == "replace_symbol":
             self._plan_symbol_edit(action, item_id=item_id)
         elif action.name in {
@@ -538,6 +557,12 @@ class _Planner:
     def _plan_create_file(self, action: Action, *, item_id: str) -> None:
         parameters = action.parameters
         path = self.policy.normalize(parameters.path)
+        if path in self.deleted:
+            raise self._error(
+                PlanningErrorCode.VIRTUAL_PATH_CONFLICT,
+                "cannot recreate a moved source in the same job",
+                item_id,
+            )
         target = self.policy.resolve(path, allow_missing=True)
         self._ensure_parent_directories(path, item_id=item_id)
         kind = self._virtual_kind(path, target, item_id=item_id)
@@ -933,6 +958,150 @@ class _Planner:
     def _range_detail(selected: CanonicalLineRange) -> str:
         return f"lines: {selected.start_line}-{selected.end_line}"
 
+    def _plan_file_move(self, action: Action, *, item_id: str) -> None:
+        params = action.parameters
+        path = self.policy.normalize(params.path)
+        destination = self.policy.normalize(params.destination)
+        if (
+            path.as_posix().casefold() == destination.as_posix().casefold()
+            or path in self.files
+            or destination in self.files
+            or destination in self.deleted
+        ):
+            raise self._error(
+                PlanningErrorCode.VIRTUAL_PATH_CONFLICT,
+                "move_file requires untouched distinct source and destination paths",
+                item_id,
+            )
+        target = self.policy.resolve(path)
+        source = self._get_file(path, target, item_id=item_id)
+        dest = self.policy.resolve(destination, allow_missing=True)
+        if (
+            self._virtual_kind(destination, dest, item_id=item_id)
+            is not PathKind.MISSING
+        ):
+            raise self._error(
+                PlanningErrorCode.CREATE_FILE_CONFLICT,
+                "move_file destination must not exist",
+                item_id,
+                path=str(destination),
+            )
+        if hashlib.sha256(source.current_bytes).hexdigest() != params.expected_sha256:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
+                "move_file source byte hash does not match",
+                item_id,
+                path=str(path),
+            )
+        self._ensure_parent_directories(destination, item_id=item_id)
+        self.files[destination] = replace(source, path=destination, original_bytes=None)
+        self.created_modes[destination] = stat.S_IMODE(target.absolute.stat().st_mode)
+        self.deleted.add(path)
+        self.action_plans.append(
+            PlannedAction(
+                id=item_id,
+                name=action.name,
+                disposition=ActionDisposition.MODIFY,
+                paths=(destination, path),
+                detail=f"move file: {path} -> {destination}; source guard: PASS",
+            )
+        )
+
+    def _plan_transfer(self, action: Action, *, item_id: str) -> None:
+        params = action.parameters
+        path = self.policy.normalize(params.path)
+        destination = self.policy.normalize(params.destination)
+        if (
+            path == destination
+            or path.as_posix().casefold() == destination.as_posix().casefold()
+        ):
+            raise self._error(
+                PlanningErrorCode.TARGET_TYPE_INVALID,
+                "transfers require distinct source and destination files",
+                item_id,
+            )
+        source = self._get_file(
+            path, self.policy.resolve(path, allow_missing=True), item_id=item_id
+        )
+        target = self._get_file(
+            destination,
+            self.policy.resolve(destination, allow_missing=True),
+            item_id=item_id,
+        )
+        if (
+            hashlib.sha256(target.current_bytes).hexdigest()
+            != params.expected_destination_sha256
+        ):
+            raise self._error(
+                PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
+                "destination file hash does not match simulated content",
+                item_id,
+                path=str(destination),
+            )
+        try:
+            if action.name == "move_range":
+                selected = self._select_range(
+                    source.text,
+                    start_line=params.start_line,
+                    end_line=params.end_line,
+                    item_id=item_id,
+                    path=path,
+                )
+                self._validate_range_guards(
+                    selected,
+                    expected_content=params.expected_content,
+                    expected_sha256=params.expected_sha256,
+                    item_id=item_id,
+                    path=path,
+                )
+                updated_source, updated_target = _refactor.move_range(
+                    source.text,
+                    target.text,
+                    start=params.start_line,
+                    end=params.end_line,
+                    line=params.destination_line,
+                )
+            else:
+                if path.suffix != ".py" or destination.suffix != ".py":
+                    raise ValueError("move_symbol requires Python files")
+                symbol = find_symbol_source(
+                    source.text, params.symbol, filename=str(path)
+                )
+                if symbol is None or symbol.ast_sha256 != params.expected_ast_sha256:
+                    raise ValueError(
+                        "source symbol is missing, ambiguous or has a stale AST guard"
+                    )
+                updated_source, updated_target = _refactor.move_symbol(
+                    source.text,
+                    target.text,
+                    symbol=params.symbol,
+                    destination_class=params.destination_class,
+                )
+            for file_path, content in (
+                (path, updated_source),
+                (destination, updated_target),
+            ):
+                if file_path.suffix == ".py":
+                    compile(content, str(file_path), "exec", dont_inherit=True)
+        except (ValueError, SyntaxError, tokenize.TokenError) as exc:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SOURCE_INVALID,
+                f"transfer validation failed: {exc}",
+                item_id,
+                path=str(path),
+            ) from exc
+        self._update_state(source, updated_source, item_id=item_id)
+        self._update_state(target, updated_target, item_id=item_id)
+        self.action_plans.append(
+            PlannedAction(
+                id=item_id,
+                name=action.name,
+                disposition=ActionDisposition.MODIFY,
+                paths=(path, destination),
+                detail="source and destination guards: PASS; transfer validated",
+            )
+        )
+
     def _plan_apply_diff(self, action: Action, *, item_id: str) -> None:
         parameters = action.parameters
         file_diffs = parse_unified_diff(
@@ -997,7 +1166,7 @@ class _Planner:
                 ):
                     continue
                 for path in action.paths:
-                    if path.suffix != ".py" or path in seen:
+                    if path.suffix != ".py" or path in seen or path in self.deleted:
                         continue
                     target = self._check_target(
                         path.as_posix(),
@@ -1182,6 +1351,8 @@ class _Planner:
         item_id: str,
     ) -> PathKind:
         self._reject_virtual_file_parent(path, item_id=item_id)
+        if path in self.deleted:
+            return PathKind.MISSING
         if path in self.files:
             return PathKind.FILE
         if path in self.created_directories:
@@ -1241,6 +1412,13 @@ class _Planner:
         *,
         item_id: str,
     ) -> _TextState:
+        if path in self.deleted:
+            raise self._error(
+                PlanningErrorCode.VIRTUAL_PATH_CONFLICT,
+                "source was moved earlier in this job",
+                item_id,
+                path=str(path),
+            )
         self._reject_virtual_file_parent(path, item_id=item_id)
         if path in self.created_directories:
             raise self._error(
@@ -1535,6 +1713,7 @@ class _Planner:
             if (
                 state.original_bytes is not None
                 and state.current_bytes == state.original_bytes
+                and state.path not in self.deleted
             ):
                 continue
             disposition = (
@@ -1542,6 +1721,9 @@ class _Planner:
                 if state.original_bytes is None
                 else FileDisposition.MODIFY
             )
+            if state.path in self.deleted:
+                disposition = FileDisposition.DELETE
+            content = b"" if state.path in self.deleted else state.current_bytes
             changes.append(
                 PlannedFileChange(
                     path=state.path,
@@ -1551,17 +1733,18 @@ class _Planner:
                         if state.original_bytes is not None
                         else None
                     ),
-                    after_sha256=hashlib.sha256(state.current_bytes).hexdigest(),
+                    after_sha256=hashlib.sha256(content).hexdigest(),
                     before_size=(
                         len(state.original_bytes)
                         if state.original_bytes is not None
                         else None
                     ),
-                    after_size=len(state.current_bytes),
+                    after_size=len(content),
                     encoding=state.encoding,
                     newline=state.newline,
                     before_content=state.original_bytes,
-                    content=state.current_bytes,
+                    content=content,
+                    mode=self.created_modes.get(state.path),
                 )
             )
         return tuple(changes)
@@ -1572,7 +1755,11 @@ class _Planner:
     ) -> tuple[PurePosixPath, ...]:
         if not self.workspace.config.formatting.enabled:
             return ()
-        return tuple(change.path for change in changes if change.path.suffix == ".py")
+        return tuple(
+            change.path
+            for change in changes
+            if change.path.suffix == ".py" and not change.deleted
+        )
 
     def _html_lint_targets(
         self,
@@ -1583,7 +1770,7 @@ class _Planner:
         return tuple(
             change.path
             for change in changes
-            if change.path.suffix.casefold() == ".html"
+            if change.path.suffix.casefold() == ".html" and not change.deleted
         )
 
     @staticmethod
@@ -1636,7 +1823,7 @@ def render_plan_diff(plan: Plan, *, maximum_bytes: int | None = None) -> PlanDif
             _normalize_newlines(before).splitlines(keepends=True),
             _normalize_newlines(after).splitlines(keepends=True),
             fromfile=fromfile,
-            tofile=f"b/{change.path.as_posix()}",
+            tofile="/dev/null" if change.deleted else f"b/{change.path.as_posix()}",
             lineterm="\n",
         )
         chunks.extend(_render_diff_lines(raw))

@@ -184,6 +184,12 @@ def _preflight_manual_rollback(
     allowed = frozenset(entry.path for entry in backup.entries)
     for entry in backup.entries:
         try:
+            if entry.applied_absent:
+                target = policy.resolve(entry.path, allow_missing=True)
+                if target.kind is not PathKind.MISSING:
+                    raise OSError("moved source was recreated after the job")
+                _read_original(backup, entry.path)
+                continue
             target = policy.resolve(entry.path)
             metadata = target.absolute.lstat()
             if stat.S_IMODE(metadata.st_mode) != entry.applied_mode:

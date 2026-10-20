@@ -94,7 +94,9 @@ def prepare_formatters(plan: Plan) -> tuple[PreparedFormatter, ...]:
     formatting = plan.workspace.config.formatting
     expected_targets = (
         tuple(
-            change.path for change in plan.file_changes if change.path.suffix == ".py"
+            change.path
+            for change in plan.file_changes
+            if change.path.suffix == ".py" and not change.deleted
         )
         if formatting.enabled
         else ()
