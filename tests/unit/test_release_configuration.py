@@ -35,7 +35,11 @@ def test_ci_contains_the_required_compatibility_matrix() -> None:
         ("windows-2025", "3.14"),
     }
     assert workflow["permissions"] == {"contents": "read"}
-    assert workflow["jobs"]["package"]["needs"] == "test"
+    assert set(workflow["jobs"]["package"]["needs"]) == {"test", "postgres"}
+    service = workflow["jobs"]["postgres"]["services"]["postgres"]
+    assert service["image"] == "postgres:16"
+    assert service["env"]["POSTGRES_DB"] == "patchshuttle_test"
+    assert service["env"]["POSTGRES_PASSWORD"] == "disposable-ci-password"
     assert "actions/checkout@v7.0.1" in _uses(workflow)
     assert "actions/setup-python@v7.0.0" in _uses(workflow)
     assert "actions/upload-artifact@v7.0.1" in _uses(workflow)
@@ -69,7 +73,8 @@ def test_testpypi_and_pypi_use_isolated_trusted_publish_jobs() -> None:
         for path in sorted(Path(".github/workflows").glob("*.yml"))
     ).casefold()
     assert "pypi_token" not in serialized
-    assert "password:" not in serialized
+    for publishing_workflow in (testpypi, release):
+        assert "password:" not in yaml.safe_dump(publishing_workflow).casefold()
     assert "secrets." not in serialized
     for workflow in (testpypi, release):
         build_commands = "\n".join(
@@ -84,4 +89,19 @@ def test_testpypi_and_pypi_use_isolated_trusted_publish_jobs() -> None:
 
 
 def test_source_version_matches_release_candidate() -> None:
-    assert source_version(Path.cwd()) == "0.1.0a5"
+    assert source_version(Path.cwd()) == "0.1.0a6"
+
+
+def test_ci_does_not_mask_pytest_failure_with_a_later_native_command() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["test"]["steps"]
+    tests = next(
+        step for step in steps if step.get("name") == "Run tests with branch coverage"
+    )
+    coverage = next(
+        step for step in steps if step.get("name") == "Require full branch coverage"
+    )
+    assert tests["run"].strip() == "python -m coverage run -m pytest -q"
+    assert coverage["run"].strip() == "python -m coverage report --fail-under=100"
+    assert "if" not in coverage
+    assert steps.index(tests) < steps.index(coverage)

@@ -81,7 +81,7 @@ def prepare_html_linter(plan: Plan) -> tuple[PreparedHtmlLint, ...]:
         tuple(
             change.path
             for change in plan.file_changes
-            if change.path.suffix.casefold() == ".html"
+            if change.path.suffix.casefold() == ".html" and not change.deleted
         )
         if settings.enabled
         else ()

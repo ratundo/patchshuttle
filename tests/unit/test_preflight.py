@@ -241,6 +241,8 @@ def test_black_preflight_uses_runtime_policy_and_accepts_reformat_exit(
     assert command.argv == (
         preflight_module.sys.executable,
         "-I",
+        "-X",
+        "utf8",
         "-m",
         "black",
         *BLACK_POLICY_OPTIONS,

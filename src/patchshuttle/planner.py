@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+import ast
 import codecs
 import difflib
 import hashlib
 import json
 import re
 import shutil
-from dataclasses import dataclass, field
-from enum import Enum
+import stat
+import textwrap
+import tokenize
+from dataclasses import replace
 from importlib.util import find_spec
 from os import PathLike
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+from patchshuttle import _refactor
 from patchshuttle._architecture import (
-    ArchitectureReport,
-    disabled_architecture_report,
     evaluate_architecture,
 )
 from patchshuttle._diff import apply_file_diff, parse_unified_diff
@@ -33,186 +35,28 @@ from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle.errors import PlanningError, PlanningErrorCode
 from patchshuttle.formatter_policy import (
     FORMATTER_ORDER,
-    FormatterDecision,
-    FormatterName,
-    PlannedFormatterTarget,
 )
 from patchshuttle.inventory import InventoryError
 from patchshuttle.models import Action, Check, Job, JobKind
+from patchshuttle.planning.imports import plan_import_edit
+from patchshuttle.planning.types import (
+    ActionDisposition,
+    FileDisposition,
+    NewlineStyle,
+    PathFingerprint,
+    Plan,
+    PlanDiff,
+    PlannedAction,
+    PlannedCheck,
+    PlannedFileChange,
+    _TextState,
+)
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import (
-    PlannedPreflightCheck,
     detect_python_encoding,
     run_quality_preflight,
 )
 from patchshuttle.workspace import Workspace, discover_workspace
-
-
-class ActionDisposition(str, Enum):
-    """Read-only conclusion for one requested action."""
-
-    INSPECT = "INSPECT"
-    CREATE = "CREATE"
-    MODIFY = "MODIFY"
-    NO_CHANGE = "NO_CHANGE"
-
-
-class FileDisposition(str, Enum):
-    """Net file operation required by a complete plan."""
-
-    CREATE = "CREATE"
-    MODIFY = "MODIFY"
-
-
-class NewlineStyle(str, Enum):
-    """Newline style preserved or requested for a planned text file."""
-
-    LF = "lf"
-    CRLF = "crlf"
-    NONE = "none"
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedAction:
-    """One sequential action and its dry-run disposition."""
-
-    id: str
-    name: str
-    disposition: ActionDisposition
-    paths: tuple[PurePosixPath, ...] = ()
-    detail: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedCheck:
-    """One requested controlled check and its validated workspace paths."""
-
-    id: str
-    name: str
-    paths: tuple[PurePosixPath, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedFileChange:
-    """The final bytes and fingerprints for one net file change."""
-
-    path: PurePosixPath
-    disposition: FileDisposition
-    before_sha256: str | None
-    after_sha256: str
-    before_size: int | None
-    after_size: int
-    encoding: str
-    newline: NewlineStyle
-    before_content: bytes | None = field(repr=False)
-    content: bytes = field(repr=False)
-
-
-@dataclass(frozen=True, slots=True)
-class PathFingerprint:
-    """Read-only metadata retained for future plan revalidation."""
-
-    path: PurePosixPath
-    kind: PathKind
-    size: int
-    modified_ns: int
-    sha256: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Plan:
-    """A complete immutable read-only plan for one validated job."""
-
-    workspace: Workspace = field(repr=False)
-    job: Job
-    job_hash: str
-    actions: tuple[PlannedAction, ...]
-    checks: tuple[PlannedCheck, ...]
-    file_changes: tuple[PlannedFileChange, ...]
-    directories_to_create: tuple[PurePosixPath, ...]
-    formatting_targets: tuple[PurePosixPath, ...]
-    formatter_plan: tuple[PlannedFormatterTarget, ...]
-    html_lint_targets: tuple[PurePosixPath, ...]
-    preflight_checks: tuple[PlannedPreflightCheck, ...]
-    fingerprints: tuple[PathFingerprint, ...]
-    protected_paths_passed: bool
-    backup_destination: PurePosixPath | None
-    auto_rollback: bool
-    architecture_report: ArchitectureReport = field(
-        default_factory=disabled_architecture_report
-    )
-
-    @property
-    def project_python(self) -> Path | None:
-        """Return the effective interpreter for project checks, when used."""
-
-        from patchshuttle.project_python import project_python_for_job
-
-        return project_python_for_job(self.workspace, self.job)
-
-    @property
-    def files_to_create(self) -> tuple[PurePosixPath, ...]:
-        return tuple(
-            change.path
-            for change in self.file_changes
-            if change.disposition is FileDisposition.CREATE
-        )
-
-    @property
-    def files_to_modify(self) -> tuple[PurePosixPath, ...]:
-        return tuple(
-            change.path
-            for change in self.file_changes
-            if change.disposition is FileDisposition.MODIFY
-        )
-
-    @property
-    def requires_confirmation(self) -> bool:
-        return (
-            self.job.kind is not JobKind.AUDIT
-            and self.workspace.config.execution.confirm
-        )
-
-    def formatter_paths(self, name: FormatterName) -> tuple[PurePosixPath, ...]:
-        """Return the immutable ordered RUN scope for one formatter."""
-
-        return tuple(
-            item.path
-            for item in self.formatter_plan
-            if item.formatter == name and item.decision is FormatterDecision.RUN
-        )
-
-    @property
-    def formatter_run_paths(self) -> tuple[PurePosixPath, ...]:
-        """Return each path that at least one formatter may modify."""
-
-        active = {
-            item.path
-            for item in self.formatter_plan
-            if item.decision is FormatterDecision.RUN
-        }
-        return tuple(path for path in self.formatting_targets if path in active)
-
-
-@dataclass(frozen=True, slots=True)
-class PlanDiff:
-    """One bounded unified preview of all resolved planned file changes."""
-
-    text: str = field(repr=False)
-    truncated: bool
-
-
-@dataclass(slots=True)
-class _TextState:
-    path: PurePosixPath
-    original_bytes: bytes | None
-    current_bytes: bytes
-    text: str
-    encoding: str
-    codec: str
-    bom: bytes
-    newline: NewlineStyle
-
 
 _UTF32_LE_BOM = b"\xff\xfe\x00\x00"
 _UTF32_BE_BOM = b"\x00\x00\xfe\xff"
@@ -259,6 +103,8 @@ class _Planner:
         self.action_plans: list[PlannedAction] = []
         self.check_plans: list[PlannedCheck] = []
         self.files: dict[PurePosixPath, _TextState] = {}
+        self.deleted: set[PurePosixPath] = set()
+        self.created_modes: dict[PurePosixPath, int] = {}
         self.created_directories: dict[PurePosixPath, None] = {}
         self.fingerprints: dict[PurePosixPath, PathFingerprint] = {}
         self.max_file_bytes = workspace.config.execution.max_single_file_bytes
@@ -393,7 +239,7 @@ class _Planner:
                     path=target.relative.as_posix(),
                 )
             paths = (target.relative,)
-        elif action.name in {"read", "read_symbol"}:
+        elif action.name in {"read", "read_symbol", "read_imports"}:
             requested_max = parameters.max_bytes
             if requested_max is not None and requested_max > self.max_file_bytes:
                 raise self._error(
@@ -408,12 +254,12 @@ class _Planner:
                 expected=PathKind.FILE,
             )
             if (
-                action.name == "read_symbol"
+                action.name in {"read_symbol", "read_imports"}
                 and target.relative.suffix.casefold() != ".py"
             ):
                 raise self._error(
                     PlanningErrorCode.TARGET_TYPE_INVALID,
-                    "read_symbol requires a .py file",
+                    "Python structural reads require a .py file",
                     item_id,
                     path=target.relative.as_posix(),
                 )
@@ -492,6 +338,12 @@ class _Planner:
             self._plan_create_directory(action, item_id=item_id)
         elif action.name == "create_file":
             self._plan_create_file(action, item_id=item_id)
+        elif action.name == "move_file":
+            self._plan_file_move(action, item_id=item_id)
+        elif action.name in {"move_range", "move_symbol"}:
+            self._plan_transfer(action, item_id=item_id)
+        elif action.name in {"ensure_import", "remove_import"}:
+            plan_import_edit(self, action, item_id=item_id)
         elif action.name == "replace_symbol":
             self._plan_symbol_edit(action, item_id=item_id)
         elif action.name in {
@@ -536,6 +388,12 @@ class _Planner:
     def _plan_create_file(self, action: Action, *, item_id: str) -> None:
         parameters = action.parameters
         path = self.policy.normalize(parameters.path)
+        if path in self.deleted:
+            raise self._error(
+                PlanningErrorCode.VIRTUAL_PATH_CONFLICT,
+                "cannot recreate a moved source in the same job",
+                item_id,
+            )
         target = self.policy.resolve(path, allow_missing=True)
         self._ensure_parent_directories(path, item_id=item_id)
         kind = self._virtual_kind(path, target, item_id=item_id)
@@ -615,7 +473,13 @@ class _Planner:
         if replacement == selected.content:
             updated = state.text
             guard_status = "ALREADY_APPLIED"
-        elif parameters.expected_sha256 != selected.sha256:
+        elif (
+            parameters.expected_sha256 is not None
+            and parameters.expected_sha256 != selected.sha256
+        ) or (
+            parameters.expected_ast_sha256 is not None
+            and parameters.expected_ast_sha256 != source.ast_sha256
+        ):
             raise self._error(
                 PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
                 "Python symbol guard does not match the current simulated file",
@@ -627,6 +491,8 @@ class _Planner:
                     f"  lines: {selected.start_line}-{selected.end_line}",
                     f"  expected_sha256: {parameters.expected_sha256}",
                     f"  actual_sha256: {selected.sha256}",
+                    f"  expected_ast_sha256: {parameters.expected_ast_sha256}",
+                    f"  actual_ast_sha256: {source.ast_sha256}",
                 ),
             )
         else:
@@ -636,6 +502,38 @@ class _Planner:
                 + state.text[selected.end_offset :]
             )
             guard_status = "PASS"
+
+        if parameters.expected_ast_sha256 is not None:
+            try:
+                replacement_tree = ast.parse(textwrap.dedent(replacement))
+                expected_type = {
+                    "class": ast.ClassDef,
+                    "function": ast.FunctionDef,
+                    "async_function": ast.AsyncFunctionDef,
+                }[source.kind]
+                if (
+                    len(replacement_tree.body) != 1
+                    or not isinstance(replacement_tree.body[0], expected_type)
+                    or replacement_tree.body[0].name != parameters.symbol.split(".")[-1]
+                ):
+                    raise ValueError(
+                        "replacement must contain exactly the same symbol name and kind"
+                    )
+                compile(updated, path.as_posix(), "exec", dont_inherit=True)
+                resolved = find_symbol_source(
+                    updated, parameters.symbol, filename=str(path)
+                )
+                if resolved is None or resolved.kind != source.kind:
+                    raise ValueError(
+                        "replacement must preserve unique symbol resolution"
+                    )
+            except (SyntaxError, ValueError) as exc:
+                raise self._error(
+                    PlanningErrorCode.PYTHON_SOURCE_INVALID,
+                    f"structural replacement failed validation: {exc}",
+                    item_id,
+                    path=path.as_posix(),
+                ) from exc
 
         disposition = self._update_state(state, updated, item_id=item_id)
         self.action_plans.append(
@@ -648,7 +546,8 @@ class _Planner:
                     f"symbol: {parameters.symbol}; kind: {source.kind}; "
                     f"lines: {selected.start_line}-{selected.end_line}; "
                     f"guard_status: {guard_status}; "
-                    f"actual_sha256: {selected.sha256}"
+                    f"actual_sha256: {selected.sha256}; "
+                    f"actual_ast_sha256: {source.ast_sha256}"
                 ),
             )
         )
@@ -890,6 +789,150 @@ class _Planner:
     def _range_detail(selected: CanonicalLineRange) -> str:
         return f"lines: {selected.start_line}-{selected.end_line}"
 
+    def _plan_file_move(self, action: Action, *, item_id: str) -> None:
+        params = action.parameters
+        path = self.policy.normalize(params.path)
+        destination = self.policy.normalize(params.destination)
+        if (
+            path.as_posix().casefold() == destination.as_posix().casefold()
+            or path in self.files
+            or destination in self.files
+            or destination in self.deleted
+        ):
+            raise self._error(
+                PlanningErrorCode.VIRTUAL_PATH_CONFLICT,
+                "move_file requires untouched distinct source and destination paths",
+                item_id,
+            )
+        target = self.policy.resolve(path)
+        source = self._get_file(path, target, item_id=item_id)
+        dest = self.policy.resolve(destination, allow_missing=True)
+        if (
+            self._virtual_kind(destination, dest, item_id=item_id)
+            is not PathKind.MISSING
+        ):
+            raise self._error(
+                PlanningErrorCode.CREATE_FILE_CONFLICT,
+                "move_file destination must not exist",
+                item_id,
+                path=str(destination),
+            )
+        if hashlib.sha256(source.current_bytes).hexdigest() != params.expected_sha256:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
+                "move_file source byte hash does not match",
+                item_id,
+                path=str(path),
+            )
+        self._ensure_parent_directories(destination, item_id=item_id)
+        self.files[destination] = replace(source, path=destination, original_bytes=None)
+        self.created_modes[destination] = stat.S_IMODE(target.absolute.stat().st_mode)
+        self.deleted.add(path)
+        self.action_plans.append(
+            PlannedAction(
+                id=item_id,
+                name=action.name,
+                disposition=ActionDisposition.MODIFY,
+                paths=(destination, path),
+                detail=f"move file: {path} -> {destination}; source guard: PASS",
+            )
+        )
+
+    def _plan_transfer(self, action: Action, *, item_id: str) -> None:
+        params = action.parameters
+        path = self.policy.normalize(params.path)
+        destination = self.policy.normalize(params.destination)
+        if (
+            path == destination
+            or path.as_posix().casefold() == destination.as_posix().casefold()
+        ):
+            raise self._error(
+                PlanningErrorCode.TARGET_TYPE_INVALID,
+                "transfers require distinct source and destination files",
+                item_id,
+            )
+        source = self._get_file(
+            path, self.policy.resolve(path, allow_missing=True), item_id=item_id
+        )
+        target = self._get_file(
+            destination,
+            self.policy.resolve(destination, allow_missing=True),
+            item_id=item_id,
+        )
+        if (
+            hashlib.sha256(target.current_bytes).hexdigest()
+            != params.expected_destination_sha256
+        ):
+            raise self._error(
+                PlanningErrorCode.PYTHON_SYMBOL_GUARD_MISMATCH,
+                "destination file hash does not match simulated content",
+                item_id,
+                path=str(destination),
+            )
+        try:
+            if action.name == "move_range":
+                selected = self._select_range(
+                    source.text,
+                    start_line=params.start_line,
+                    end_line=params.end_line,
+                    item_id=item_id,
+                    path=path,
+                )
+                self._validate_range_guards(
+                    selected,
+                    expected_content=params.expected_content,
+                    expected_sha256=params.expected_sha256,
+                    item_id=item_id,
+                    path=path,
+                )
+                updated_source, updated_target = _refactor.move_range(
+                    source.text,
+                    target.text,
+                    start=params.start_line,
+                    end=params.end_line,
+                    line=params.destination_line,
+                )
+            else:
+                if path.suffix != ".py" or destination.suffix != ".py":
+                    raise ValueError("move_symbol requires Python files")
+                symbol = find_symbol_source(
+                    source.text, params.symbol, filename=str(path)
+                )
+                if symbol is None or symbol.ast_sha256 != params.expected_ast_sha256:
+                    raise ValueError(
+                        "source symbol is missing, ambiguous or has a stale AST guard"
+                    )
+                updated_source, updated_target = _refactor.move_symbol(
+                    source.text,
+                    target.text,
+                    symbol=params.symbol,
+                    destination_class=params.destination_class,
+                )
+            for file_path, content in (
+                (path, updated_source),
+                (destination, updated_target),
+            ):
+                if file_path.suffix == ".py":
+                    compile(content, str(file_path), "exec", dont_inherit=True)
+        except (ValueError, SyntaxError, tokenize.TokenError) as exc:
+            raise self._error(
+                PlanningErrorCode.PYTHON_SOURCE_INVALID,
+                f"transfer validation failed: {exc}",
+                item_id,
+                path=str(path),
+            ) from exc
+        self._update_state(source, updated_source, item_id=item_id)
+        self._update_state(target, updated_target, item_id=item_id)
+        self.action_plans.append(
+            PlannedAction(
+                id=item_id,
+                name=action.name,
+                disposition=ActionDisposition.MODIFY,
+                paths=(path, destination),
+                detail="source and destination guards: PASS; transfer validated",
+            )
+        )
+
     def _plan_apply_diff(self, action: Action, *, item_id: str) -> None:
         parameters = action.parameters
         file_diffs = parse_unified_diff(
@@ -954,7 +997,7 @@ class _Planner:
                 ):
                     continue
                 for path in action.paths:
-                    if path.suffix != ".py" or path in seen:
+                    if path.suffix != ".py" or path in seen or path in self.deleted:
                         continue
                     target = self._check_target(
                         path.as_posix(),
@@ -1139,6 +1182,8 @@ class _Planner:
         item_id: str,
     ) -> PathKind:
         self._reject_virtual_file_parent(path, item_id=item_id)
+        if path in self.deleted:
+            return PathKind.MISSING
         if path in self.files:
             return PathKind.FILE
         if path in self.created_directories:
@@ -1198,6 +1243,13 @@ class _Planner:
         *,
         item_id: str,
     ) -> _TextState:
+        if path in self.deleted:
+            raise self._error(
+                PlanningErrorCode.VIRTUAL_PATH_CONFLICT,
+                "source was moved earlier in this job",
+                item_id,
+                path=str(path),
+            )
         self._reject_virtual_file_parent(path, item_id=item_id)
         if path in self.created_directories:
             raise self._error(
@@ -1492,6 +1544,7 @@ class _Planner:
             if (
                 state.original_bytes is not None
                 and state.current_bytes == state.original_bytes
+                and state.path not in self.deleted
             ):
                 continue
             disposition = (
@@ -1499,6 +1552,9 @@ class _Planner:
                 if state.original_bytes is None
                 else FileDisposition.MODIFY
             )
+            if state.path in self.deleted:
+                disposition = FileDisposition.DELETE
+            content = b"" if state.path in self.deleted else state.current_bytes
             changes.append(
                 PlannedFileChange(
                     path=state.path,
@@ -1508,17 +1564,18 @@ class _Planner:
                         if state.original_bytes is not None
                         else None
                     ),
-                    after_sha256=hashlib.sha256(state.current_bytes).hexdigest(),
+                    after_sha256=hashlib.sha256(content).hexdigest(),
                     before_size=(
                         len(state.original_bytes)
                         if state.original_bytes is not None
                         else None
                     ),
-                    after_size=len(state.current_bytes),
+                    after_size=len(content),
                     encoding=state.encoding,
                     newline=state.newline,
                     before_content=state.original_bytes,
-                    content=state.current_bytes,
+                    content=content,
+                    mode=self.created_modes.get(state.path),
                 )
             )
         return tuple(changes)
@@ -1529,7 +1586,11 @@ class _Planner:
     ) -> tuple[PurePosixPath, ...]:
         if not self.workspace.config.formatting.enabled:
             return ()
-        return tuple(change.path for change in changes if change.path.suffix == ".py")
+        return tuple(
+            change.path
+            for change in changes
+            if change.path.suffix == ".py" and not change.deleted
+        )
 
     def _html_lint_targets(
         self,
@@ -1540,7 +1601,7 @@ class _Planner:
         return tuple(
             change.path
             for change in changes
-            if change.path.suffix.casefold() == ".html"
+            if change.path.suffix.casefold() == ".html" and not change.deleted
         )
 
     @staticmethod
@@ -1593,7 +1654,7 @@ def render_plan_diff(plan: Plan, *, maximum_bytes: int | None = None) -> PlanDif
             _normalize_newlines(before).splitlines(keepends=True),
             _normalize_newlines(after).splitlines(keepends=True),
             fromfile=fromfile,
-            tofile=f"b/{change.path.as_posix()}",
+            tofile="/dev/null" if change.deleted else f"b/{change.path.as_posix()}",
             lineterm="\n",
         )
         chunks.extend(_render_diff_lines(raw))

@@ -281,6 +281,8 @@ def _preflight_black(workspace: Workspace, path: PurePosixPath, text: str) -> No
             argv=(
                 sys.executable,
                 "-I",
+                "-X",
+                "utf8",
                 "-m",
                 "black",
                 *BLACK_POLICY_OPTIONS,

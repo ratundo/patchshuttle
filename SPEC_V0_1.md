@@ -863,7 +863,9 @@ Fields:
 
 - `path`: required existing Python text file;
 - `symbol`: required dotted class, function, method, or nested-symbol name;
-- `expected_sha256`: required canonical hash returned by `read_symbol`;
+- `expected_sha256`: optional canonical text hash returned by `read_symbol`;
+- `expected_ast_sha256`: optional structural hash returned by `read_symbol`;
+- at least one hash is required; when both are supplied both must match;
 - `new_content`: required complete replacement source.
 
 Planning parses the current sequential simulated file without importing it,
@@ -873,6 +875,15 @@ stale targets fail without fuzzy relocation or automatic line shifting. Exact
 desired symbol content returns `NO_CHANGE`. Execution publishes the planner's
 final file bytes through the normal guarded transaction, backup, check,
 workspace-comparison, and rollback lifecycle.
+
+With `expected_ast_sha256`, whitespace and ordinary comment differences do not
+invalidate the guard. Hashes include AST fields but exclude source positions,
+and are scoped to the `ast_python` major/minor version reported by the audit.
+Docstrings, decorators and annotations remain part of the AST. The replacement
+must be one declaration of the same name and kind, the final module must compile
+without execution, and the qualified target must still resolve uniquely.
+Use the text guard as well when comment changes must invalidate the job.
+Old text-guarded jobs retain their normalized serialization and registry hash.
 
 ### 13.5 `insert_before`
 
@@ -2085,3 +2096,76 @@ unless this specification is explicitly revised:
 - logs are plain UTF-8 text with timestamped names and an AI handoff block;
 - implementation begins with tests for the contract before completing the
   execution engine.
+
+
+## Guarded source transfers
+
+- `move_range`: `path`, `start_line`, `end_line`, source `expected_content`
+  and/or `expected_sha256`, `destination`, `destination_line` and
+  `expected_destination_sha256`.
+- `move_symbol`: `path`, `symbol`, `expected_ast_sha256`, `destination`,
+  `expected_destination_sha256` and optional `destination_class`.
+
+Destination hashes cover simulated raw bytes; source range hashes cover
+canonical LF/UTF-8 text. Destinations must exist or be created earlier in the
+same job. Range insertion is before the 1-based destination line; EOF+1 appends.
+Symbol insertion appends at module scope or to the named class. Both files are
+validated and participate in the same backup/check/rollback transaction.
+
+Same-file transfers, case-only path differences, duplicate destination names,
+closure extraction, class-bound super/private-name moves and multiline-string
+reindentation are rejected. Imports and callers are not automatically rewritten;
+include explicit edits and focused project checks. These actions move source
+content and leave the source file present. Whole-file moves are separate work.
+
+
+## Whole-file transfers
+
+`move_file` moves an existing supported text file to an absent destination.
+Supply `path`, `destination`, and `expected_sha256` of the original raw bytes.
+The transaction preserves original bytes and permissions, creates missing
+parent directories, and reports the source in `deleted_files`. Formatters and
+checks target the surviving destination. Add explicit import and caller edits
+when moving Python modules; imports are not automatically rewritten.
+
+The source and destination must not have been touched earlier in the job.
+Subsequent edits to the destination are supported. Case-only moves, chains,
+swaps, binary files and reuse of the vacated path are currently rejected.
+A failed check restores the source and removes the destination. Manual rollback
+also verifies the applied state and refuses to overwrite a recreated source.
+
+
+## Structural import edits
+
+`read_imports` accepts `path` and optional `max_bytes`. It reports top-level
+imports, `imports_ast_sha256`, and `ast_python`. The hash ignores formatting
+and comments, includes alias names and order, and is Python-minor-specific.
+Nested/conditional imports are not selected. Use the same interpreter for
+inspection and planning.
+
+`ensure_import` and `remove_import` require `path`, `statement` and
+`expected_imports_ast_sha256`. The statement must be exactly one Python
+`import` or `from ... import ...` with one alias, optionally renamed. Relative
+imports are supported. Star requests and ambiguous duplicate matches fail.
+The guard is always checked, including for already-present/absent imports.
+
+```yaml
+- ensure_import:
+    path: services/offers.py
+    statement: from .pricing import calculate_price
+    expected_imports_ast_sha256: "<64 hex digits from read_imports>"
+```
+
+An existing alias in a multi-alias import satisfies `ensure_import` without
+rewriting that line. Removal from a multi-alias import requires a separately
+reviewed rewrite. Removal retains comments, including comments inside a
+parenthesized import. Shared semicolon lines are rejected when editing them.
+Insertion preserves headers, the module docstring and future-import ordering.
+Existing bindings are checked conservatively across scopes; a conflicting
+local name may therefore require a separately reviewed edit too. The resulting
+module is compiled without importing or executing it.
+
+Unrelated source remains intact before the normal scoped formatter phase.
+Neither action rewrites callers, proves runtime compatibility, nor infers
+imports when moving files or symbols. A sequence of import edits needs the
+hash of each simulated intermediate import set, or separate audited jobs.

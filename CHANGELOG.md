@@ -3,7 +3,30 @@
 All notable changes to PatchShuttle are recorded in this file. The project
 uses semantic versioning, including Python-compatible pre-release versions.
 
-## Unreleased
+## 0.1.0a6 - 2026-10-21
+
+### Added
+
+- Guarded `read_imports`, `ensure_import` and `remove_import` with alias-aware AST matching, comment preservation and binding checks.
+
+- Optional authenticated MCP history server for ChatGPT, scoped to one workspace and OAuth subject.
+- Optional Django migration command with hashed plans, database locks, pre/post checks, explicit reversals and separate recovery journals.
+- Guarded `move_range` and `move_symbol` source transfers between files,
+  including destination fingerprints, structural validation, Python constructors,
+  and shared transaction rollback.
+- Guarded `move_file` with destination absence checks, byte/mode preservation,
+  explicit deleted-file reporting, and automatic and manual rollback.
+
+- Optional AST guards for `replace_symbol`, with hashes and Python version
+  reported by `read_symbol`, replacement declaration validation and compile
+  validation. Existing text-only job serialization remains compatible.
+
+### Changed
+
+- Formatter child interpreters and Black preflight explicitly enable Python
+  UTF-8 mode, including under isolated execution.
+
+See `docs/NEXT_RELEASE.md` for implemented scope and remaining release work.
 
 ## 0.1.0a5 - 2026-08-28
 

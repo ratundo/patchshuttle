@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 import platform
 import shutil
 import stat
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -26,6 +28,7 @@ from patchshuttle.inventory import (
 )
 from patchshuttle.models import JobKind
 from patchshuttle.planner import Plan, plan_job
+from patchshuttle.planning.imports import inspect_imports
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import detect_python_encoding
 
@@ -161,6 +164,8 @@ def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
         return AuditStatus.COMPLETED, _search(plan, parameters)
     if name == "search_context":
         return AuditStatus.COMPLETED, _search_context(plan, parameters)
+    if name == "read_imports":
+        return AuditStatus.COMPLETED, _read_imports(plan, parameters)
     if name == "read_symbol":
         return AuditStatus.COMPLETED, _read_symbol(plan, parameters)
     if name == "python_structure":
@@ -366,6 +371,8 @@ def _read_symbol(plan: Plan, parameters) -> str:
             "canonical_encoding: utf-8",
             "canonical_newline: lf",
             f"sha256: {selected.sha256}",
+            f"ast_sha256: {source.ast_sha256}",
+            f"ast_python: {sys.version_info.major}.{sys.version_info.minor}",
             *(
                 f"{number:>6}: {lines[number - 1]}"
                 for number in range(
@@ -818,3 +825,30 @@ __all__ = [
     "AuditStatus",
     "execute_audit_locked",
 ]
+
+
+def _read_imports(plan: Plan, parameters) -> str:
+    target = Policy(plan.workspace).resolve(parameters.path)
+    raw = _read_regular_file(plan, target)
+    encoding, text = _decode_text(raw, path=target.relative)
+    try:
+        _, nodes, digest = inspect_imports(text)
+    except (SyntaxError, ValueError) as exc:
+        raise ExecutionError(
+            ExecutionErrorCode.ACTION_FAILED,
+            "Python source could not be parsed for read_imports",
+            path=target.relative.as_posix(),
+        ) from exc
+    output = "\n".join(
+        (
+            f"path: {target.relative.as_posix()}",
+            f"encoding: {encoding}",
+            f"imports_ast_sha256: {digest}",
+            f"ast_python: {sys.version_info.major}.{sys.version_info.minor}",
+            *(ast.unparse(node) for node in nodes),
+        )
+    )
+    return _bounded_output(
+        output,
+        parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes,
+    )[0]

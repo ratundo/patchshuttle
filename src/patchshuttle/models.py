@@ -13,6 +13,7 @@ from pydantic import (
     Field,
     RootModel,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -82,6 +83,17 @@ class SearchParameters(_FrozenModel):
 class SearchContextParameters(SearchParameters):
     before: ContextLineCount = 3
     after: ContextLineCount = 3
+
+
+class ReadImportsParameters(_FrozenModel):
+    path: NonEmptyString
+    max_bytes: PositiveInteger | None = None
+
+
+class ImportEditParameters(_FrozenModel):
+    path: NonEmptyString
+    statement: NonEmptyString
+    expected_imports_ast_sha256: Sha256Hex
 
 
 class ReadSymbolParameters(_FrozenModel):
@@ -157,13 +169,27 @@ class ReplaceExactParameters(_FrozenModel):
 class ReplaceSymbolParameters(_FrozenModel):
     path: NonEmptyString
     symbol: PythonSymbol
-    expected_sha256: Sha256Hex
+    expected_sha256: Sha256Hex | None = None
+    expected_ast_sha256: Sha256Hex | None = None
     new_content: StrictString
 
-    @field_validator("expected_sha256")
+    @field_validator("expected_sha256", "expected_ast_sha256")
     @classmethod
-    def normalize_expected_sha256(cls, value: str) -> str:
-        return value.casefold()
+    def normalize_expected_sha256(cls, value: str | None) -> str | None:
+        return value.casefold() if value is not None else None
+
+    @model_serializer(mode="wrap")
+    def serialize_guards(self, handler):
+        payload = handler(self)
+        if self.expected_ast_sha256 is None:
+            payload.pop("expected_ast_sha256", None)
+        return payload
+
+    @model_validator(mode="after")
+    def require_guard(self) -> ReplaceSymbolParameters:
+        if self.expected_sha256 is None and self.expected_ast_sha256 is None:
+            raise ValueError("at least one symbol guard is required")
+        return self
 
 
 class InsertBeforeParameters(_FrozenModel):
@@ -228,6 +254,42 @@ class InsertAtLineParameters(_FrozenModel):
         if self.expected_content is None and self.expected_sha256 is None:
             raise ValueError("at least one line guard is required")
         return self
+
+
+class MoveFileParameters(_FrozenModel):
+    path: NonEmptyString
+    destination: NonEmptyString
+    expected_sha256: Sha256Hex
+
+    @field_validator("expected_sha256")
+    @classmethod
+    def normalize_hash(cls, value: str) -> str:
+        return value.casefold()
+
+
+class MoveRangeParameters(_GuardedLineRangeParameters):
+    destination: NonEmptyString
+    destination_line: PositiveInteger
+    expected_destination_sha256: Sha256Hex
+
+    @field_validator("expected_destination_sha256")
+    @classmethod
+    def normalize_destination_hash(cls, value: str) -> str:
+        return value.casefold()
+
+
+class MoveSymbolParameters(_FrozenModel):
+    path: NonEmptyString
+    symbol: PythonSymbol
+    expected_ast_sha256: Sha256Hex
+    destination: NonEmptyString
+    destination_class: PythonSymbol | None = None
+    expected_destination_sha256: Sha256Hex
+
+    @field_validator("expected_ast_sha256", "expected_destination_sha256")
+    @classmethod
+    def normalize_hash(cls, value: str) -> str:
+        return value.casefold()
 
 
 class ApplyDiffParameters(_FrozenModel):
@@ -310,6 +372,18 @@ class SearchContextAction(_FrozenModel):
     search_context: SearchContextParameters
 
 
+class ReadImportsAction(_FrozenModel):
+    read_imports: ReadImportsParameters
+
+
+class EnsureImportAction(_FrozenModel):
+    ensure_import: ImportEditParameters
+
+
+class RemoveImportAction(_FrozenModel):
+    remove_import: ImportEditParameters
+
+
 class ReadSymbolAction(_FrozenModel):
     read_symbol: ReadSymbolParameters
 
@@ -382,6 +456,18 @@ class InsertAtLineAction(_FrozenModel):
     insert_at_line: InsertAtLineParameters
 
 
+class MoveFileAction(_FrozenModel):
+    move_file: MoveFileParameters
+
+
+class MoveRangeAction(_FrozenModel):
+    move_range: MoveRangeParameters
+
+
+class MoveSymbolAction(_FrozenModel):
+    move_symbol: MoveSymbolParameters
+
+
 class ApplyDiffAction(_FrozenModel):
     apply_diff: ApplyDiffParameters
 
@@ -391,6 +477,9 @@ ActionValue: TypeAlias = (
     | ReadAction
     | SearchAction
     | SearchContextAction
+    | ReadImportsAction
+    | EnsureImportAction
+    | RemoveImportAction
     | ReadSymbolAction
     | PythonStructureAction
     | FindFilesAction
@@ -410,6 +499,9 @@ ActionValue: TypeAlias = (
     | DeleteRangeAction
     | InsertAtLineAction
     | ApplyDiffAction
+    | MoveFileAction
+    | MoveRangeAction
+    | MoveSymbolAction
 )
 ActionName: TypeAlias = Literal[
     "tree",
@@ -417,6 +509,7 @@ ActionName: TypeAlias = Literal[
     "search",
     "search_context",
     "read_symbol",
+    "read_imports",
     "python_structure",
     "find_files",
     "file_info",
@@ -428,6 +521,8 @@ ActionName: TypeAlias = Literal[
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "ensure_import",
+    "remove_import",
     "insert_before",
     "insert_after",
     "delete_exact",
@@ -435,6 +530,9 @@ ActionName: TypeAlias = Literal[
     "delete_range",
     "insert_at_line",
     "apply_diff",
+    "move_file",
+    "move_range",
+    "move_symbol",
 ]
 
 _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
@@ -443,6 +541,9 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "search": SearchAction,
     "search_context": SearchContextAction,
     "read_symbol": ReadSymbolAction,
+    "read_imports": ReadImportsAction,
+    "ensure_import": EnsureImportAction,
+    "remove_import": RemoveImportAction,
     "python_structure": PythonStructureAction,
     "find_files": FindFilesAction,
     "file_info": FileInfoAction,
@@ -461,6 +562,9 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "delete_range": DeleteRangeAction,
     "insert_at_line": InsertAtLineAction,
     "apply_diff": ApplyDiffAction,
+    "move_file": MoveFileAction,
+    "move_range": MoveRangeAction,
+    "move_symbol": MoveSymbolAction,
 }
 
 AUDIT_ACTION_NAMES = frozenset(
@@ -470,6 +574,7 @@ AUDIT_ACTION_NAMES = frozenset(
         "search",
         "search_context",
         "read_symbol",
+        "read_imports",
         "python_structure",
         "find_files",
         "file_info",
@@ -485,6 +590,8 @@ CHANGE_ACTION_NAMES = frozenset(
         "create_file",
         "replace_exact",
         "replace_symbol",
+        "ensure_import",
+        "remove_import",
         "insert_before",
         "insert_after",
         "delete_exact",
@@ -492,6 +599,9 @@ CHANGE_ACTION_NAMES = frozenset(
         "delete_range",
         "insert_at_line",
         "apply_diff",
+        "move_file",
+        "move_range",
+        "move_symbol",
     }
 )
 

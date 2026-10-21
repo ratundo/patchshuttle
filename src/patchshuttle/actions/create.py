@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import os
+import stat
 import uuid
 from pathlib import Path, PurePosixPath
 
@@ -111,6 +112,11 @@ def verify_created_file(workspace: Workspace, change: PlannedFileChange) -> None
     target = Policy(workspace).resolve(change.path, allow_missing=True)
     if target.kind is not PathKind.FILE:
         raise OSError(f"created file has an unexpected post-state: {change.path}")
+    if (
+        change.mode is not None
+        and stat.S_IMODE(target.absolute.stat().st_mode) != change.mode
+    ):
+        raise OSError(f"created file mode failed post-state validation: {change.path}")
     raw = target.absolute.read_bytes()
     if (
         len(raw) != change.after_size

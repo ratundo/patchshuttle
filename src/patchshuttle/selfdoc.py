@@ -14,6 +14,7 @@ AUDIT_ACTIONS = (
     "search",
     "search_context",
     "read_symbol",
+    "read_imports",
     "python_structure",
     "find_files",
     "file_info",
@@ -27,6 +28,8 @@ CHANGE_ACTIONS = (
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "ensure_import",
+    "remove_import",
     "insert_before",
     "insert_after",
     "delete_exact",
@@ -34,6 +37,9 @@ CHANGE_ACTIONS = (
     "delete_range",
     "insert_at_line",
     "apply_diff",
+    "move_file",
+    "move_range",
+    "move_symbol",
 )
 CHECKS = (
     "compileall",
@@ -50,6 +56,21 @@ CHECKS = (
 FORMATTERS = ("isort", "black")
 
 _EXPLANATIONS = {
+    "move_file": """category: change_action
+summary: Move one existing text file to a missing destination inside the workspace.
+fields: path, destination, expected_sha256 (raw source byte hash)
+planning: Requires untouched source/destination paths. Preserves source bytes and mode; destination may be edited later in the job. Imports and references require explicit edits.
+safety: Both ends are journaled; missing source state is verified; rollback restores source and removes destination. Reuse of the moved source and case-only moves are rejected.""",
+    "move_range": """category: change_action
+summary: Transfer guarded physical lines between distinct files in one transaction.
+fields: path, start_line, end_line, destination, destination_line, expected_destination_sha256; expected_content and/or expected_sha256
+planning: destination_line inserts before that line, or EOF+1. Destination must exist or be created earlier in the job. Hash its simulated raw bytes.
+safety: Both files are backed up and checked. Python outputs must compile. No implicit newline is added to a moved range.""",
+    "move_symbol": """category: change_action
+summary: Transfer a guarded Python declaration between distinct files.
+fields: path, symbol, expected_ast_sha256, destination, expected_destination_sha256; optional destination_class
+planning: Appends at module level or to the named class. Both resulting modules must compile and the moved AST must match. Destination must already exist or be created earlier in the job.
+safety: Rejects destination name collisions, nested closures and class-bound super/private-name transfers. Reindent of multiline strings is rejected. Imports and callers require explicit edits and project tests.""",
     "create_directory": """\
 category: change_action
 summary: Create one missing directory inside the workspace.
@@ -78,11 +99,11 @@ example:
     "replace_symbol": """\
 category: change_action
 summary: Replace one exactly resolved decorator-aware Python symbol.
-fields: path, dotted symbol, expected_sha256, and new_content (required)
+fields: path, dotted symbol, and new_content (required); expected_sha256 and/or expected_ast_sha256 (at least one required)
 planning: Resolution and guard validation use the current sequential simulated file state.
-canonicalization: The guard is read_symbol SHA-256 over canonical LF UTF-8 symbol source.
+canonicalization: expected_sha256 uses canonical LF UTF-8 source; expected_ast_sha256 uses read_symbol ast_sha256, ignoring formatting and comments. AST hashes are specific to the reported Python minor version. When both guards are supplied both must match.
 idempotency: Exact desired symbol content becomes NO_CHANGE even when the prior guard no longer matches.
-safety: Syntax, missing or duplicate resolution, and hash mismatches fail without fuzzy relocation or line shifting.
+safety: AST-guarded replacements must retain one declaration with the same name and kind, compile successfully, and preserve unique resolution. Missing or duplicate resolution and hash mismatches fail without fuzzy relocation.
 example:
   - replace_symbol:
       path: src/example.py
@@ -209,6 +230,15 @@ resolution: Explicit paths are loaded as exact roots; otherwise the current dire
 hinting: A bounded direct-child scan may suggest candidates but never selects one automatically.""",
 }
 
+_EXPLANATIONS["read_imports"] = (
+    "Read top-level Python imports and imports_ast_sha256; accepts path and optional max_bytes. Hash ignores formatting/comments and is Python-minor-specific."
+)
+_EXPLANATIONS["ensure_import"] = (
+    "Ensure one top-level import alias exists. Requires path, statement and expected_imports_ast_sha256 from read_imports. Preserves unrelated text, rejects binding conflicts, ambiguous duplicates and star requests. Guard is checked even for no-op."
+)
+_EXPLANATIONS["remove_import"] = (
+    "Remove one exact top-level import alias. Same parameters as ensure_import. Absent alias is a guarded no-op; multi-alias removal and shared semicolon lines are rejected. Comments are retained; callers are not rewritten."
+)
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 
 

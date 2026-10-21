@@ -211,15 +211,79 @@ def replace_symbol(
     symbol: str,
     new_content: str,
     *,
-    expected_sha256: str,
+    expected_sha256: str | None = None,
+    expected_ast_sha256: str | None = None,
 ) -> Action:
     return Action(
         {
             "replace_symbol": {
                 "path": path,
                 "symbol": symbol,
-                "expected_sha256": expected_sha256,
                 "new_content": new_content,
+                "expected_sha256": expected_sha256,
+                "expected_ast_sha256": expected_ast_sha256,
+            }
+        }
+    )
+
+
+def move_file(path: str, destination: str, *, expected_sha256: str) -> Action:
+    return Action(
+        {
+            "move_file": {
+                "path": path,
+                "destination": destination,
+                "expected_sha256": expected_sha256,
+            }
+        }
+    )
+
+
+def move_range(
+    path: str,
+    destination: str,
+    *,
+    start_line: int,
+    end_line: int,
+    destination_line: int,
+    expected_destination_sha256: str,
+    expected_content: str | None = None,
+    expected_sha256: str | None = None,
+) -> Action:
+    return Action(
+        {
+            "move_range": {
+                "path": path,
+                "destination": destination,
+                "start_line": start_line,
+                "end_line": end_line,
+                "destination_line": destination_line,
+                "expected_destination_sha256": expected_destination_sha256,
+                "expected_content": expected_content,
+                "expected_sha256": expected_sha256,
+            }
+        }
+    )
+
+
+def move_symbol(
+    path: str,
+    symbol: str,
+    destination: str,
+    *,
+    expected_ast_sha256: str,
+    expected_destination_sha256: str,
+    destination_class: str | None = None,
+) -> Action:
+    return Action(
+        {
+            "move_symbol": {
+                "path": path,
+                "symbol": symbol,
+                "destination": destination,
+                "expected_ast_sha256": expected_ast_sha256,
+                "expected_destination_sha256": expected_destination_sha256,
+                "destination_class": destination_class,
             }
         }
     )
@@ -381,7 +445,45 @@ def _add_guards(
         parameters["expected_sha256"] = expected_sha256
 
 
+def read_imports(path: str, *, max_bytes: int | None = None) -> Action:
+    parameters = {"path": path}
+    if max_bytes is not None:
+        parameters["max_bytes"] = max_bytes
+    return Action({"read_imports": parameters})
+
+
+def ensure_import(
+    path: str, statement: str, *, expected_imports_ast_sha256: str
+) -> Action:
+    return Action(
+        {
+            "ensure_import": {
+                "path": path,
+                "statement": statement,
+                "expected_imports_ast_sha256": expected_imports_ast_sha256,
+            }
+        }
+    )
+
+
+def remove_import(
+    path: str, statement: str, *, expected_imports_ast_sha256: str
+) -> Action:
+    return Action(
+        {
+            "remove_import": {
+                "path": path,
+                "statement": statement,
+                "expected_imports_ast_sha256": expected_imports_ast_sha256,
+            }
+        }
+    )
+
+
 __all__ = [
+    "read_imports",
+    "ensure_import",
+    "remove_import",
     "apply_diff",
     "create_directory",
     "create_file",
@@ -399,6 +501,10 @@ __all__ = [
     "read",
     "read_symbol",
     "replace_exact",
+    "replace_symbol",
+    "move_file",
+    "move_range",
+    "move_symbol",
     "replace_range",
     "search",
     "search_context",

@@ -42,7 +42,7 @@ from patchshuttle.inventory import (
     compare_inventories,
 )
 from patchshuttle.linters import HtmlLintResult, HtmlLintStatus, run_html_linter
-from patchshuttle.models import JobKind
+from patchshuttle.models import CHANGE_ACTION_NAMES, JobKind
 from patchshuttle.planner import (
     ActionDisposition,
     FileDisposition,
@@ -59,20 +59,7 @@ from patchshuttle.runtime_cache import (
 from patchshuttle.workspace import Workspace
 
 _CREATE_ACTIONS = frozenset({"create_directory", "create_file"})
-_CHANGE_ACTIONS = frozenset(
-    {
-        *_CREATE_ACTIONS,
-        "replace_exact",
-        "replace_symbol",
-        "insert_before",
-        "insert_after",
-        "delete_exact",
-        "replace_range",
-        "delete_range",
-        "insert_at_line",
-        "apply_diff",
-    }
-)
+_CHANGE_ACTIONS = CHANGE_ACTION_NAMES
 
 
 class TransactionStatus(str, Enum):
@@ -92,6 +79,7 @@ class TransactionResult:
     created_files: tuple[PurePosixPath, ...]
     created_directories: tuple[PurePosixPath, ...]
     modified_files: tuple[PurePosixPath, ...] = ()
+    deleted_files: tuple[PurePosixPath, ...] = ()
     html_lint_results: tuple[HtmlLintResult, ...] = ()
     initial_checks: tuple[CheckResult, ...] = ()
     formatting_results: tuple[FormatterResult, ...] = ()
@@ -330,7 +318,13 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
                         raise
                     created_files.append(path)
                     rollback_files.append(path)
+                    if change.mode is not None:
+                        plan.workspace.root.joinpath(*path.parts).chmod(change.mode)
                     actions.verify_created_file(plan.workspace, change)
+                elif change.deleted:
+                    actions.remove_planned_file(plan.workspace, change)
+                    modified_files.append(path)
+                    actions.verify_removed_file(plan.workspace, change)
                 else:
                     entry = backup.entry_for(path)
                     if entry.original_mode is None:
@@ -365,7 +359,7 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
             raise OSError("not all planned directories were created")
         if tuple(created_files) != plan.files_to_create:
             raise OSError("not all planned files were created")
-        if tuple(modified_files) != plan.files_to_modify:
+        if set(modified_files) != set((*plan.files_to_modify, *plan.files_to_delete)):
             raise OSError("not all planned files were modified")
 
         try:
@@ -617,7 +611,10 @@ def _execute_locked(plan: Plan, *, keep_changes: bool = False) -> TransactionRes
         backup_path=backup.path,
         created_files=tuple(created_files),
         created_directories=tuple(created_directories),
-        modified_files=tuple(modified_files),
+        modified_files=tuple(
+            path for path in modified_files if path not in plan.files_to_delete
+        ),
+        deleted_files=plan.files_to_delete,
         html_lint_results=html_lint_results,
         initial_checks=initial_checks,
         formatting_results=formatting_results,
@@ -656,6 +653,7 @@ def _compare_workspace_to_baseline(
         expected_paths=(
             *plan.files_to_create,
             *plan.files_to_modify,
+            *plan.files_to_delete,
             *plan.directories_to_create,
         ),
     )
@@ -749,7 +747,9 @@ def _verify_planned_transaction_files(
         if change.path in excluded:
             continue
         try:
-            if change.disposition is FileDisposition.CREATE:
+            if change.deleted:
+                actions.verify_removed_file(plan.workspace, change)
+            elif change.disposition is FileDisposition.CREATE:
                 actions.verify_created_file(plan.workspace, change)
             else:
                 entry = backup.entry_for(change.path)

@@ -69,6 +69,7 @@ class RunResult:
     created_files: tuple[PurePosixPath, ...]
     created_directories: tuple[PurePosixPath, ...]
     modified_files: tuple[PurePosixPath, ...] = ()
+    deleted_files: tuple[PurePosixPath, ...] = ()
     html_lint_results: tuple[HtmlLintResult, ...] = ()
     initial_checks: tuple[CheckResult, ...] = ()
     formatting_results: tuple[FormatterResult, ...] = ()
@@ -502,6 +503,7 @@ def _public_result(
             transaction.created_directories if transaction is not None else ()
         ),
         modified_files=(transaction.modified_files if transaction is not None else ()),
+        deleted_files=(transaction.deleted_files if transaction is not None else ()),
         html_lint_results=(
             transaction.html_lint_results if transaction is not None else ()
         ),

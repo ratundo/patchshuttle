@@ -65,6 +65,7 @@ class BackupEntry:
     applied_sha256: str | None = None
     applied_size: int | None = None
     applied_mode: int | None = None
+    applied_absent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -486,6 +487,17 @@ def _capture_applied_states(
     states: dict[PurePosixPath, dict[str, object]] = {}
     for entry in backup.entries:
         try:
+            if entry.path in backup.plan.files_to_delete:
+                target = policy.resolve(entry.path, allow_missing=True)
+                if target.kind is not PathKind.MISSING:
+                    raise OSError("deleted source reappeared before state capture")
+                states[entry.path] = {
+                    "kind": "missing",
+                    "mode": 0,
+                    "sha256": None,
+                    "size": 0,
+                }
+                continue
             target = policy.resolve(entry.path)
             metadata = target.absolute.lstat()
             if entry.kind is BackupEntryKind.FILE:
@@ -610,12 +622,25 @@ def _parse_completed_manifest(
         applied = applied_states.get(path.as_posix())
         if not isinstance(applied, dict):
             raise TypeError("manifest entry is missing its applied state")
-        if _required_manifest(applied, "kind", str) != kind.value:
+        applied_kind = _required_manifest(applied, "kind", str)
+        applied_absent = applied_kind == "missing"
+        if applied_absent:
+            if (
+                kind is not BackupEntryKind.FILE
+                or original is not OriginalState.PRESENT
+            ):
+                raise ValueError(
+                    "only an original file can have an absent applied state"
+                )
+        elif applied_kind != kind.value:
             raise ValueError("applied entry kind does not match")
         applied_mode = _required_manifest(applied, "mode", int)
         applied_size = _required_manifest(applied, "size", int)
         applied_sha = applied.get("sha256")
-        if kind is BackupEntryKind.FILE:
+        if applied_absent:
+            if applied_sha is not None or applied_size != 0 or applied_mode != 0:
+                raise ValueError("absent applied state cannot have a fingerprint")
+        elif kind is BackupEntryKind.FILE:
             if not isinstance(applied_sha, str) or applied_size < 0:
                 raise TypeError("applied file fingerprint is invalid")
         elif applied_sha is not None or applied_size != 0:
@@ -650,6 +675,7 @@ def _parse_completed_manifest(
                 applied_sha256=applied_sha,
                 applied_size=applied_size,
                 applied_mode=applied_mode,
+                applied_absent=applied_absent,
             )
         )
     return tuple(entries)
