@@ -3,9 +3,11 @@
 All notable changes to PatchShuttle are recorded in this file. The project
 uses semantic versioning, including Python-compatible pre-release versions.
 
-## Unreleased
+## 0.1.0a6 - 2026-10-21
 
 ### Added
+
+- Guarded `read_imports`, `ensure_import` and `remove_import` with alias-aware AST matching, comment preservation and binding checks.
 
 - Optional authenticated MCP history server for ChatGPT, scoped to one workspace and OAuth subject.
 - Optional Django migration command with hashed plans, database locks, pre/post checks, explicit reversals and separate recovery journals.

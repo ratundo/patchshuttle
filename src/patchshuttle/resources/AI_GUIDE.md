@@ -417,3 +417,39 @@ Subsequent edits to the destination are supported. Case-only moves, chains,
 swaps, binary files and reuse of the vacated path are currently rejected.
 A failed check restores the source and removes the destination. Manual rollback
 also verifies the applied state and refuses to overwrite a recreated source.
+
+
+## Structural import edits
+
+`read_imports` accepts `path` and optional `max_bytes`. It reports top-level
+imports, `imports_ast_sha256`, and `ast_python`. The hash ignores formatting
+and comments, includes alias names and order, and is Python-minor-specific.
+Nested/conditional imports are not selected. Use the same interpreter for
+inspection and planning.
+
+`ensure_import` and `remove_import` require `path`, `statement` and
+`expected_imports_ast_sha256`. The statement must be exactly one Python
+`import` or `from ... import ...` with one alias, optionally renamed. Relative
+imports are supported. Star requests and ambiguous duplicate matches fail.
+The guard is always checked, including for already-present/absent imports.
+
+```yaml
+- ensure_import:
+    path: services/offers.py
+    statement: from .pricing import calculate_price
+    expected_imports_ast_sha256: "<64 hex digits from read_imports>"
+```
+
+An existing alias in a multi-alias import satisfies `ensure_import` without
+rewriting that line. Removal from a multi-alias import requires a separately
+reviewed rewrite. Removal retains comments, including comments inside a
+parenthesized import. Shared semicolon lines are rejected when editing them.
+Insertion preserves headers, the module docstring and future-import ordering.
+Existing bindings are checked conservatively across scopes; a conflicting
+local name may therefore require a separately reviewed edit too. The resulting
+module is compiled without importing or executing it.
+
+Unrelated source remains intact before the normal scoped formatter phase.
+Neither action rewrites callers, proves runtime compatibility, nor infers
+imports when moving files or symbols. A sequence of import edits needs the
+hash of each simulated intermediate import set, or separate audited jobs.

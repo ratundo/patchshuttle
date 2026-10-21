@@ -445,7 +445,45 @@ def _add_guards(
         parameters["expected_sha256"] = expected_sha256
 
 
+def read_imports(path: str, *, max_bytes: int | None = None) -> Action:
+    parameters = {"path": path}
+    if max_bytes is not None:
+        parameters["max_bytes"] = max_bytes
+    return Action({"read_imports": parameters})
+
+
+def ensure_import(
+    path: str, statement: str, *, expected_imports_ast_sha256: str
+) -> Action:
+    return Action(
+        {
+            "ensure_import": {
+                "path": path,
+                "statement": statement,
+                "expected_imports_ast_sha256": expected_imports_ast_sha256,
+            }
+        }
+    )
+
+
+def remove_import(
+    path: str, statement: str, *, expected_imports_ast_sha256: str
+) -> Action:
+    return Action(
+        {
+            "remove_import": {
+                "path": path,
+                "statement": statement,
+                "expected_imports_ast_sha256": expected_imports_ast_sha256,
+            }
+        }
+    )
+
+
 __all__ = [
+    "read_imports",
+    "ensure_import",
+    "remove_import",
     "apply_diff",
     "create_directory",
     "create_file",

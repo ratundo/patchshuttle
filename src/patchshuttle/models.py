@@ -85,6 +85,17 @@ class SearchContextParameters(SearchParameters):
     after: ContextLineCount = 3
 
 
+class ReadImportsParameters(_FrozenModel):
+    path: NonEmptyString
+    max_bytes: PositiveInteger | None = None
+
+
+class ImportEditParameters(_FrozenModel):
+    path: NonEmptyString
+    statement: NonEmptyString
+    expected_imports_ast_sha256: Sha256Hex
+
+
 class ReadSymbolParameters(_FrozenModel):
     path: NonEmptyString
     symbol: PythonSymbol
@@ -361,6 +372,18 @@ class SearchContextAction(_FrozenModel):
     search_context: SearchContextParameters
 
 
+class ReadImportsAction(_FrozenModel):
+    read_imports: ReadImportsParameters
+
+
+class EnsureImportAction(_FrozenModel):
+    ensure_import: ImportEditParameters
+
+
+class RemoveImportAction(_FrozenModel):
+    remove_import: ImportEditParameters
+
+
 class ReadSymbolAction(_FrozenModel):
     read_symbol: ReadSymbolParameters
 
@@ -454,6 +477,9 @@ ActionValue: TypeAlias = (
     | ReadAction
     | SearchAction
     | SearchContextAction
+    | ReadImportsAction
+    | EnsureImportAction
+    | RemoveImportAction
     | ReadSymbolAction
     | PythonStructureAction
     | FindFilesAction
@@ -483,6 +509,7 @@ ActionName: TypeAlias = Literal[
     "search",
     "search_context",
     "read_symbol",
+    "read_imports",
     "python_structure",
     "find_files",
     "file_info",
@@ -494,6 +521,8 @@ ActionName: TypeAlias = Literal[
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "ensure_import",
+    "remove_import",
     "insert_before",
     "insert_after",
     "delete_exact",
@@ -512,6 +541,9 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "search": SearchAction,
     "search_context": SearchContextAction,
     "read_symbol": ReadSymbolAction,
+    "read_imports": ReadImportsAction,
+    "ensure_import": EnsureImportAction,
+    "remove_import": RemoveImportAction,
     "python_structure": PythonStructureAction,
     "find_files": FindFilesAction,
     "file_info": FileInfoAction,
@@ -542,6 +574,7 @@ AUDIT_ACTION_NAMES = frozenset(
         "search",
         "search_context",
         "read_symbol",
+        "read_imports",
         "python_structure",
         "find_files",
         "file_info",
@@ -557,6 +590,8 @@ CHANGE_ACTION_NAMES = frozenset(
         "create_file",
         "replace_exact",
         "replace_symbol",
+        "ensure_import",
+        "remove_import",
         "insert_before",
         "insert_after",
         "delete_exact",

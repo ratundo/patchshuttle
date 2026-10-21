@@ -250,3 +250,17 @@ external acceptance gates complete. Section 0 contains that record for
 `0.1.0a2`; future releases require their own evidence. A `Tested with ChatGPT`
 statement also requires a separate recorded ChatGPT end-to-end workflow using
 that released protocol and must state the tested scope.
+
+
+## 0.1.0a6 candidate
+
+Source candidate prepared on 2026-10-21. This is not a publication record.
+Scope: AST-guarded symbol/import edits, guarded file/range/symbol transfers,
+UTF-8 formatter subprocesses, optional authenticated MCP history retrieval,
+and an optional Django migration command with reviewed plans and journals.
+The owner must configure the live HTTPS/OAuth deployment separately.
+
+Adapter commit `738366bfe1c6c02442913703e9d9bafaafd7065c` passed
+[Linux/Windows, PostgreSQL 16, and distribution CI](https://github.com/ratundo/patchshuttle/actions/runs/39432455841).
+The final versioned candidate still requires its own complete gates before
+TestPyPI, GitHub pre-release and production PyPI publication.

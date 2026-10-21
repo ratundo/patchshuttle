@@ -12,8 +12,7 @@ import shutil
 import stat
 import textwrap
 import tokenize
-from dataclasses import dataclass, field, replace
-from enum import Enum
+from dataclasses import replace
 from importlib.util import find_spec
 from os import PathLike
 from pathlib import Path, PurePosixPath
@@ -21,8 +20,6 @@ from typing import cast
 
 from patchshuttle import _refactor
 from patchshuttle._architecture import (
-    ArchitectureReport,
-    disabled_architecture_report,
     evaluate_architecture,
 )
 from patchshuttle._diff import apply_file_diff, parse_unified_diff
@@ -38,196 +35,28 @@ from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle.errors import PlanningError, PlanningErrorCode
 from patchshuttle.formatter_policy import (
     FORMATTER_ORDER,
-    FormatterDecision,
-    FormatterName,
-    PlannedFormatterTarget,
 )
 from patchshuttle.inventory import InventoryError
 from patchshuttle.models import Action, Check, Job, JobKind
+from patchshuttle.planning.imports import plan_import_edit
+from patchshuttle.planning.types import (
+    ActionDisposition,
+    FileDisposition,
+    NewlineStyle,
+    PathFingerprint,
+    Plan,
+    PlanDiff,
+    PlannedAction,
+    PlannedCheck,
+    PlannedFileChange,
+    _TextState,
+)
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import (
-    PlannedPreflightCheck,
     detect_python_encoding,
     run_quality_preflight,
 )
 from patchshuttle.workspace import Workspace, discover_workspace
-
-
-class ActionDisposition(str, Enum):
-    """Read-only conclusion for one requested action."""
-
-    INSPECT = "INSPECT"
-    CREATE = "CREATE"
-    MODIFY = "MODIFY"
-    NO_CHANGE = "NO_CHANGE"
-
-
-class FileDisposition(str, Enum):
-    """Net file operation required by a complete plan."""
-
-    CREATE = "CREATE"
-    MODIFY = "MODIFY"
-    DELETE = "DELETE"
-
-
-class NewlineStyle(str, Enum):
-    """Newline style preserved or requested for a planned text file."""
-
-    LF = "lf"
-    CRLF = "crlf"
-    NONE = "none"
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedAction:
-    """One sequential action and its dry-run disposition."""
-
-    id: str
-    name: str
-    disposition: ActionDisposition
-    paths: tuple[PurePosixPath, ...] = ()
-    detail: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedCheck:
-    """One requested controlled check and its validated workspace paths."""
-
-    id: str
-    name: str
-    paths: tuple[PurePosixPath, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedFileChange:
-    """The final bytes and fingerprints for one net file change."""
-
-    path: PurePosixPath
-    disposition: FileDisposition
-    before_sha256: str | None
-    after_sha256: str
-    before_size: int | None
-    after_size: int
-    encoding: str
-    newline: NewlineStyle
-    before_content: bytes | None = field(repr=False)
-    content: bytes = field(repr=False)
-    mode: int | None = None
-
-    @property
-    def deleted(self) -> bool:
-        return self.disposition is FileDisposition.DELETE
-
-
-@dataclass(frozen=True, slots=True)
-class PathFingerprint:
-    """Read-only metadata retained for future plan revalidation."""
-
-    path: PurePosixPath
-    kind: PathKind
-    size: int
-    modified_ns: int
-    sha256: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Plan:
-    """A complete immutable read-only plan for one validated job."""
-
-    workspace: Workspace = field(repr=False)
-    job: Job
-    job_hash: str
-    actions: tuple[PlannedAction, ...]
-    checks: tuple[PlannedCheck, ...]
-    file_changes: tuple[PlannedFileChange, ...]
-    directories_to_create: tuple[PurePosixPath, ...]
-    formatting_targets: tuple[PurePosixPath, ...]
-    formatter_plan: tuple[PlannedFormatterTarget, ...]
-    html_lint_targets: tuple[PurePosixPath, ...]
-    preflight_checks: tuple[PlannedPreflightCheck, ...]
-    fingerprints: tuple[PathFingerprint, ...]
-    protected_paths_passed: bool
-    backup_destination: PurePosixPath | None
-    auto_rollback: bool
-    architecture_report: ArchitectureReport = field(
-        default_factory=disabled_architecture_report
-    )
-
-    @property
-    def project_python(self) -> Path | None:
-        """Return the effective interpreter for project checks, when used."""
-
-        from patchshuttle.project_python import project_python_for_job
-
-        return project_python_for_job(self.workspace, self.job)
-
-    @property
-    def files_to_create(self) -> tuple[PurePosixPath, ...]:
-        return tuple(
-            change.path
-            for change in self.file_changes
-            if change.disposition is FileDisposition.CREATE
-        )
-
-    @property
-    def files_to_modify(self) -> tuple[PurePosixPath, ...]:
-        return tuple(
-            change.path
-            for change in self.file_changes
-            if change.disposition is FileDisposition.MODIFY
-        )
-
-    @property
-    def files_to_delete(self) -> tuple[PurePosixPath, ...]:
-        return tuple(change.path for change in self.file_changes if change.deleted)
-
-    @property
-    def requires_confirmation(self) -> bool:
-        return (
-            self.job.kind is not JobKind.AUDIT
-            and self.workspace.config.execution.confirm
-        )
-
-    def formatter_paths(self, name: FormatterName) -> tuple[PurePosixPath, ...]:
-        """Return the immutable ordered RUN scope for one formatter."""
-
-        return tuple(
-            item.path
-            for item in self.formatter_plan
-            if item.formatter == name and item.decision is FormatterDecision.RUN
-        )
-
-    @property
-    def formatter_run_paths(self) -> tuple[PurePosixPath, ...]:
-        """Return each path that at least one formatter may modify."""
-
-        active = {
-            item.path
-            for item in self.formatter_plan
-            if item.decision is FormatterDecision.RUN
-        }
-        return tuple(path for path in self.formatting_targets if path in active)
-
-
-@dataclass(frozen=True, slots=True)
-class PlanDiff:
-    """One bounded unified preview of all resolved planned file changes."""
-
-    text: str = field(repr=False)
-    truncated: bool
-
-
-@dataclass(slots=True)
-class _TextState:
-    path: PurePosixPath
-    original_bytes: bytes | None
-    current_bytes: bytes
-    text: str
-    encoding: str
-    codec: str
-    bom: bytes
-    newline: NewlineStyle
-
 
 _UTF32_LE_BOM = b"\xff\xfe\x00\x00"
 _UTF32_BE_BOM = b"\x00\x00\xfe\xff"
@@ -410,7 +239,7 @@ class _Planner:
                     path=target.relative.as_posix(),
                 )
             paths = (target.relative,)
-        elif action.name in {"read", "read_symbol"}:
+        elif action.name in {"read", "read_symbol", "read_imports"}:
             requested_max = parameters.max_bytes
             if requested_max is not None and requested_max > self.max_file_bytes:
                 raise self._error(
@@ -425,12 +254,12 @@ class _Planner:
                 expected=PathKind.FILE,
             )
             if (
-                action.name == "read_symbol"
+                action.name in {"read_symbol", "read_imports"}
                 and target.relative.suffix.casefold() != ".py"
             ):
                 raise self._error(
                     PlanningErrorCode.TARGET_TYPE_INVALID,
-                    "read_symbol requires a .py file",
+                    "Python structural reads require a .py file",
                     item_id,
                     path=target.relative.as_posix(),
                 )
@@ -513,6 +342,8 @@ class _Planner:
             self._plan_file_move(action, item_id=item_id)
         elif action.name in {"move_range", "move_symbol"}:
             self._plan_transfer(action, item_id=item_id)
+        elif action.name in {"ensure_import", "remove_import"}:
+            plan_import_edit(self, action, item_id=item_id)
         elif action.name == "replace_symbol":
             self._plan_symbol_edit(action, item_id=item_id)
         elif action.name in {

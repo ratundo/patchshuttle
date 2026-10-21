@@ -14,6 +14,7 @@ AUDIT_ACTIONS = (
     "search",
     "search_context",
     "read_symbol",
+    "read_imports",
     "python_structure",
     "find_files",
     "file_info",
@@ -27,6 +28,8 @@ CHANGE_ACTIONS = (
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "ensure_import",
+    "remove_import",
     "insert_before",
     "insert_after",
     "delete_exact",
@@ -227,6 +230,15 @@ resolution: Explicit paths are loaded as exact roots; otherwise the current dire
 hinting: A bounded direct-child scan may suggest candidates but never selects one automatically.""",
 }
 
+_EXPLANATIONS["read_imports"] = (
+    "Read top-level Python imports and imports_ast_sha256; accepts path and optional max_bytes. Hash ignores formatting/comments and is Python-minor-specific."
+)
+_EXPLANATIONS["ensure_import"] = (
+    "Ensure one top-level import alias exists. Requires path, statement and expected_imports_ast_sha256 from read_imports. Preserves unrelated text, rejects binding conflicts, ambiguous duplicates and star requests. Guard is checked even for no-op."
+)
+_EXPLANATIONS["remove_import"] = (
+    "Remove one exact top-level import alias. Same parameters as ensure_import. Absent alias is a guarded no-op; multi-alias removal and shared semicolon lines are rejected. Comments are retained; callers are not rewritten."
+)
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 
 

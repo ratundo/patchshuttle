@@ -1,7 +1,7 @@
 # Next release: structural editing and controlled refactoring
 
-Status: implementation in progress, not a release qualification record.
-Base: 0.1.0a5. Do not tag or publish this branch as a completed release.
+Status: 0.1.0a6 candidate undergoing release qualification.
+Base: 0.1.0a5. Publication requires the release gates below.
 
 ## Implemented in this branch
 
@@ -35,7 +35,7 @@ This is AST-selected source replacement, not AST unparse of the whole file.
 
 Use the text guard too when changes to comments must invalidate a patch.
 No fuzzy matching or automatic selection of a similarly named declaration
-is introduced. Structural import editing remains outstanding; file moves and cross-file source transfers are described below.
+is introduced. Structural import editing, file moves and cross-file source transfers are described below.
 
 Formatter child interpreters and Black's stdin preflight explicitly use
 `-I -X utf8`. This addresses locale-dependent Python stream encodings without
@@ -45,9 +45,8 @@ the original traceback before claiming that incident is resolved.
 
 ## Remaining implementation work
 
-1. Structural imports: ensure/remove an exact import with alias awareness;
-   preserve module docstrings and future-import ordering; reject ambiguous
-   changes and validate the resulting module.
+1. Structural imports are implemented with alias awareness, AST guards and
+   compile validation. Broader multi-alias rewrites remain explicit edits.
 2. Extend `move_file` beyond the current guarded text-file scope only after
    adding corresponding binary-content and chained-move validation.
 3. Extend implemented `move_symbol`: select a class/function/method by qualified name and guard;
@@ -69,14 +68,15 @@ The owner selected ChatGPT retrieval and Django migrations. Optional adapters
 are now implemented. See `CHATGPT_INTEGRATION.md` for OAuth resource-server
 configuration and `DJANGO_MIGRATIONS.md` for migration review, journal and recovery.
 The user's live OAuth/ChatGPT deployment is not configured. PostgreSQL 16
-qualification runs in the new CI service job; local integration tests use SQLite.
+qualification passed in CI run 39432455841 for the adapter commit; the final
+candidate must pass again. Local integration tests use SQLite.
 
 ## Release gates
 
 Retain docs/RELEASE.md gates: formatting, full tests with 100% branch coverage,
 package and clean-wheel checks, Linux/Windows CI, then TestPyPI publication
 and clean-index verification, then GitHub pre-release and production PyPI.
-The current partial branch is not eligible for that publication sequence.
+Do not publish until these gates pass for the final candidate commit.
 
 ## Cross-file source transfers (implemented after the initial draft)
 
@@ -132,3 +132,39 @@ Subsequent edits to the destination are supported. Case-only moves, chains,
 swaps, binary files and reuse of the vacated path are currently rejected.
 A failed check restores the source and removes the destination. Manual rollback
 also verifies the applied state and refuses to overwrite a recreated source.
+
+
+## Structural import edits
+
+`read_imports` accepts `path` and optional `max_bytes`. It reports top-level
+imports, `imports_ast_sha256`, and `ast_python`. The hash ignores formatting
+and comments, includes alias names and order, and is Python-minor-specific.
+Nested/conditional imports are not selected. Use the same interpreter for
+inspection and planning.
+
+`ensure_import` and `remove_import` require `path`, `statement` and
+`expected_imports_ast_sha256`. The statement must be exactly one Python
+`import` or `from ... import ...` with one alias, optionally renamed. Relative
+imports are supported. Star requests and ambiguous duplicate matches fail.
+The guard is always checked, including for already-present/absent imports.
+
+```yaml
+- ensure_import:
+    path: services/offers.py
+    statement: from .pricing import calculate_price
+    expected_imports_ast_sha256: "<64 hex digits from read_imports>"
+```
+
+An existing alias in a multi-alias import satisfies `ensure_import` without
+rewriting that line. Removal from a multi-alias import requires a separately
+reviewed rewrite. Removal retains comments, including comments inside a
+parenthesized import. Shared semicolon lines are rejected when editing them.
+Insertion preserves headers, the module docstring and future-import ordering.
+Existing bindings are checked conservatively across scopes; a conflicting
+local name may therefore require a separately reviewed edit too. The resulting
+module is compiled without importing or executing it.
+
+Unrelated source remains intact before the normal scoped formatter phase.
+Neither action rewrites callers, proves runtime compatibility, nor infers
+imports when moving files or symbols. A sequence of import edits needs the
+hash of each simulated intermediate import set, or separate audited jobs.

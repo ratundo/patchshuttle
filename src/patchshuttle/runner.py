@@ -42,7 +42,7 @@ from patchshuttle.inventory import (
     compare_inventories,
 )
 from patchshuttle.linters import HtmlLintResult, HtmlLintStatus, run_html_linter
-from patchshuttle.models import JobKind
+from patchshuttle.models import CHANGE_ACTION_NAMES, JobKind
 from patchshuttle.planner import (
     ActionDisposition,
     FileDisposition,
@@ -59,23 +59,7 @@ from patchshuttle.runtime_cache import (
 from patchshuttle.workspace import Workspace
 
 _CREATE_ACTIONS = frozenset({"create_directory", "create_file"})
-_CHANGE_ACTIONS = frozenset(
-    {
-        *_CREATE_ACTIONS,
-        "replace_exact",
-        "replace_symbol",
-        "insert_before",
-        "insert_after",
-        "delete_exact",
-        "replace_range",
-        "delete_range",
-        "insert_at_line",
-        "apply_diff",
-        "move_file",
-        "move_range",
-        "move_symbol",
-    }
-)
+_CHANGE_ACTIONS = CHANGE_ACTION_NAMES
 
 
 class TransactionStatus(str, Enum):

@@ -6,7 +6,7 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. Version `0.1.0a5` implements the complete
+> PatchShuttle is alpha software. Version `0.1.0a6` implements the complete
 > local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
@@ -63,7 +63,7 @@ After publication, install the exact alpha release from PyPI:
 ```bash
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install "patchshuttle==0.1.0a5"
+python -m pip install "patchshuttle==0.1.0a6"
 ```
 
 For development from a local checkout:
@@ -76,7 +76,7 @@ To enable opt-in HTML template linting in an installed release, install the
 `html` extra:
 
 ```bash
-python -m pip install "patchshuttle[html]==0.1.0a5"
+python -m pip install "patchshuttle[html]==0.1.0a6"
 ```
 
 For a local development checkout, install both development and HTML extras:
@@ -847,7 +847,7 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a5-py3-none-any.whl --version 0.1.0a5
+python tools/wheel_smoke.py dist/patchshuttle-0.1.0a6-py3-none-any.whl --version 0.1.0a6
 ```
 
 The `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` alpha releases each passed the
@@ -1021,3 +1021,18 @@ also verifies the applied state and refuses to overwrite a recreated source.
 
 - `patchshuttle[mcp]`: authenticated, read-only history retrieval for ChatGPT. See [setup and deployment limits](docs/CHATGPT_INTEGRATION.md).
 - `patchshuttle[django]`: reviewed migration plans, explicit execution/reversal, and a separate recovery journal. See [Django workflow](docs/DJANGO_MIGRATIONS.md).
+
+
+## Structural editing and optional adapters in 0.1.0a6
+
+Use `read_symbol` AST hashes for guarded class/method replacements; use
+`read_imports`, `ensure_import`, and `remove_import` for structural imports.
+`move_file`, `move_range`, and `move_symbol` support explicit refactoring plans
+with shared checks and rollback. Imports and callers are not inferred.
+See [scope and examples](docs/NEXT_RELEASE.md).
+
+Optional [ChatGPT history retrieval](docs/CHATGPT_INTEGRATION.md) uses an
+owner-configured authenticated MCP server (`patchshuttle[mcp]`).
+Optional [Django migrations](docs/DJANGO_MIGRATIONS.md) provide reviewed plans,
+locks and recovery journals (`patchshuttle[django]`). A live ChatGPT deployment
+requires the owner's HTTPS endpoint and OAuth configuration.
