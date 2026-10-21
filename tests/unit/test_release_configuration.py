@@ -90,3 +90,18 @@ def test_testpypi_and_pypi_use_isolated_trusted_publish_jobs() -> None:
 
 def test_source_version_matches_release_candidate() -> None:
     assert source_version(Path.cwd()) == "0.1.0a6"
+
+
+def test_ci_does_not_mask_pytest_failure_with_a_later_native_command() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["test"]["steps"]
+    tests = next(
+        step for step in steps if step.get("name") == "Run tests with branch coverage"
+    )
+    coverage = next(
+        step for step in steps if step.get("name") == "Require full branch coverage"
+    )
+    assert tests["run"].strip() == "python -m coverage run -m pytest -q"
+    assert coverage["run"].strip() == "python -m coverage report --fail-under=100"
+    assert "if" not in coverage
+    assert steps.index(tests) < steps.index(coverage)

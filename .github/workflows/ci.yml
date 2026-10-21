@@ -47,10 +47,9 @@ jobs:
       - name: Check formatting
         run: python -m black --check src tests tools
       - name: Run tests with branch coverage
-        run: |
-          python -m coverage erase
-          python -m coverage run -m pytest -q
-          python -m coverage report --fail-under=100
+        run: python -m coverage run -m pytest -q
+      - name: Require full branch coverage
+        run: python -m coverage report --fail-under=100
 
   postgres:
     name: Django / PostgreSQL 16
