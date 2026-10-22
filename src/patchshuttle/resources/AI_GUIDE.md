@@ -31,6 +31,52 @@ When asked for a PatchShuttle job:
    to YAML. Those settings belong only to the user's local
    `patches/patchshuttle.toml` policy.
 
+## Choose the operation before writing a job
+
+For existing Python classes/functions/methods, prefer read_symbol + replace_symbol over text actions when the intended edit is one symbol replacement. Use python_structure only when the target is unknown. Preserve destination indentation; copy guards from a fresh audit.
+
+| Intent | Preferred operation |
+| --- | --- |
+| Discover Python declarations | `python_structure` |
+| Inspect a known declaration and obtain guards | `read_symbol` |
+| Replace one existing declaration | `replace_symbol` |
+| Move a declaration | `move_symbol` |
+| Inspect/edit supported imports | `read_imports`, then `ensure_import` / `remove_import` |
+| Move a file | `move_file` |
+| Module assignment, comments, non-Python text, templates | Guarded text/range actions |
+| New file | `create_file` |
+
+`PYTHON_SYMBOL_ACTION_AVAILABLE` is advisory, not evidence that a particular
+text edit targets a declaration. It never changes guards or rejects a job.
+
+Audit action fragment (use an audit job):
+
+```yaml
+- read_symbol:
+    path: app/models.py
+    symbol: Service.run
+    max_bytes: 50000
+```
+
+Later patch action fragment (use a separate patch job with project checks):
+
+```yaml
+- replace_symbol:
+    path: app/models.py
+    symbol: Service.run
+    expected_ast_sha256: "<ast_sha256 copied from the audit>"
+    new_content: |
+          def run(self):
+              return self.execute()
+```
+
+The replacement body is illustrative, not a claim about the project. Preserve
+its actual signature and intended behavior. Use the same Python minor version
+for audit and planning. Add `expected_sha256` from the audit when comment/source
+changes must also invalidate the guard; both supplied guards must match.
+
+Retrieve the observed result through configured MCP history when available; otherwise request the resulting log. Never assume an MCP connection exists or infer success from a plan.
+
 ## Job kinds
 
 - `audit` - one or more read-only audit actions, no checks.
@@ -305,8 +351,8 @@ matches, or
 unified-diff hunk diagnostics to correct the next job instead of guessing file
 content. `LINE_RANGE_OUT_OF_BOUNDS` and `LINE_RANGE_GUARD_MISMATCH` require a
 fresh audit; never shift or weaken the guard by guessing. After every recorded
-attempt, ask the user for that `.log` file or a
-fresh `patchshuttle handoff` file and use its final
+attempt, retrieve configured MCP history when available, or request the `.log`
+file or a fresh `patchshuttle handoff` file. When reading a log, use its final
 `PATCHSHUTTLE_AI_HANDOFF` block before preparing the next job. Never state that
 a job was applied merely because YAML or a successful plan was created.
 

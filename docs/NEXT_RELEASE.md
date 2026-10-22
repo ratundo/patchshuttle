@@ -1,7 +1,14 @@
 # Next release: structural editing and controlled refactoring
 
-Status: 0.1.0a6 candidate undergoing release qualification.
-Base: 0.1.0a5. Publication requires the release gates below.
+Status: 0.1.0a6 published; see RELEASE.md for immutable publication evidence.
+The sections below describe a6 scope and remaining work.
+
+## 0.1.0a7 development
+
+First milestone: operational Python action selection guidance in handoff/guide,
+advisory targeting feedback in plans and logs, and updated transfer telemetry.
+Subsequent milestones require separate implementation and qualification; no a7
+publication is recorded yet.
 
 ## Implemented in this branch
 

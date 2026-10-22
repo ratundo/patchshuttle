@@ -3,6 +3,16 @@
 All notable changes to PatchShuttle are recorded in this file. The project
 uses semantic versioning, including Python-compatible pre-release versions.
 
+## Unreleased - 0.1.0a7 development
+
+- Add conditional Python symbol-edit guidance to CLI plans, full and compact
+  logs, including targeting failures; advisory does not alter guards or policy.
+- Add operation-selection rules and an audit-to-patch example to AI guidance.
+- Prefer configured MCP history retrieval, retaining manual logs as fallback.
+- Count symbol/range transfers and report structural imports and file moves.
+- Extract plan and discovery-log presentation into smaller modules without
+  relaxing the existing architecture ratchet.
+
 ## 0.1.0a6 - 2026-10-21
 
 ### Added
