@@ -252,15 +252,40 @@ statement also requires a separate recorded ChatGPT end-to-end workflow using
 that released protocol and must state the tested scope.
 
 
-## 0.1.0a6 candidate
+## Recorded `0.1.0a6` qualification
 
-Source candidate prepared on 2026-10-21. This is not a publication record.
+Published on 2026-10-22 from immutable tag `v0.1.0a6`, resolving to
+`831dc2a8b4342150785a227a4834e5c1efdfc5be`.
+
 Scope: AST-guarded symbol/import edits, guarded file/range/symbol transfers,
 UTF-8 formatter subprocesses, optional authenticated MCP history retrieval,
 and an optional Django migration command with reviewed plans and journals.
 The owner must configure the live HTTPS/OAuth deployment separately.
+Refactoring does not automatically rewrite callers or infer dependencies;
+database recovery requires explicit owner review rather than automatic rollback.
 
-Adapter commit `738366bfe1c6c02442913703e9d9bafaafd7065c` passed
-[Linux/Windows, PostgreSQL 16, and distribution CI](https://github.com/ratundo/patchshuttle/actions/runs/39432455841).
-The final versioned candidate still requires its own complete gates before
-TestPyPI, GitHub pre-release and production PyPI publication.
+External gates completed successfully:
+
+- [main CI: all seven jobs](https://github.com/ratundo/patchshuttle/actions/runs/39643741606),
+  including Ubuntu, Windows, PostgreSQL 16 and clean-wheel checks;
+- [tag CI](https://github.com/ratundo/patchshuttle/actions/runs/39741537873);
+- [TestPyPI build, publish and clean-index verification](https://github.com/ratundo/patchshuttle/actions/runs/39740928641);
+- [GitHub pre-release](https://github.com/ratundo/patchshuttle/releases/tag/v0.1.0a6);
+- [PyPI build, publish and clean-index verification](https://github.com/ratundo/patchshuttle/actions/runs/39741537464),
+  with `INDEX_SMOKE_OK pypi 0.1.0a6`;
+- [PyPI version](https://pypi.org/project/patchshuttle/0.1.0a6/).
+
+The qualified suite passed 1,112 tests with 100% statement and branch coverage.
+Windows pytest and coverage-report steps are separate so a later successful
+native command cannot mask a failed test command.
+
+The TestPyPI and production PyPI JSON APIs independently reported byte-identical
+artifacts (matching sizes and SHA-256 digests):
+
+- `patchshuttle-0.1.0a6-py3-none-any.whl`, 202331 bytes:
+  `fd83e54be01115af1217d56ae73bd7cf2c8880ce79b84a7fd7d5b06678efb92f`;
+- `patchshuttle-0.1.0a6.tar.gz`, 355211 bytes:
+  `15654537705304ab843ba6cfa5d615900420efd2f6ebefc83b28ca7d64da8c91`.
+
+This publication record does not extend the separately scoped a2
+**Tested with ChatGPT** claim or claim deployment of a live MCP endpoint.
