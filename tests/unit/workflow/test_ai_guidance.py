@@ -102,7 +102,7 @@ def test_text_advisory_does_not_block_plan_or_execution(tmp_path, suffix, has_hi
     result = execute_plan(plan, approved=True)
     from patchshuttle._ai_log import render_ai_log
 
-    log = result.log_path.read_text()
+    log = result.log_path.read_text(encoding="utf-8")
     assert ("PYTHON_SYMBOL_ACTION_AVAILABLE" in log) is has_hint
     assert (
         "PYTHON_SYMBOL_ACTION_AVAILABLE"
@@ -113,10 +113,10 @@ def test_text_advisory_does_not_block_plan_or_execution(tmp_path, suffix, has_hi
         in render_ai_log(log, source="test", json_output=False)
     ) is has_hint
     assert result.workspace_comparison.success
-    assert "VALUE = 2" in target.read_text()
+    assert "VALUE = 2" in target.read_text(encoding="utf-8")
     handoff = create_handoff(ws)
     # The generated handoff contains guidance even after a non-Python edit.
-    handoff_text = handoff.path.read_text()
+    handoff_text = handoff.path.read_text(encoding="utf-8")
     assert "prefer read_symbol + replace_symbol" in handoff_text
     assert "expected_ast_sha256:" in handoff_text
     assert "MCP history when available" in handoff_text
