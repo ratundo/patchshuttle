@@ -18,7 +18,8 @@ bounded indentation context and YAML guidance; input is never reindented.
 Indentation diagnostics passed both hosted CI runs. Batch import editing with
 one initial guard is implemented; qualification is in progress.
 Batch imports passed hosted CI. Opt-in audit-derived action drafts are
-implemented; their qualification and final candidate/release work remain pending.
+implemented. Static module-import dependency auditing is implemented;
+qualification, symbol-reference analysis and final release work remain pending.
 
 ## Subsequent work, in priority order
 

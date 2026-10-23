@@ -68,10 +68,11 @@ def test_symbol_draft_roundtrip_indentation_unicode_and_stale_guard(tmp_path):
         plan_job(patch(ws, draft), ws)
 
 
-def test_import_skeleton_requires_explicit_edits(tmp_path):
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_import_skeleton_requires_explicit_edits(tmp_path, newline):
     ws = init_workspace(tmp_path).workspace
     target = tmp_path / "модуль.py"
-    target.write_text("import os\n", encoding="utf-8")
+    target.write_bytes(("import os" + newline).encode("utf-8"))
     output = audit(ws, read_imports("модуль.py", include_template=True))
     draft = fragment(output)
     assert draft["edit_imports"]["edits"] == []
@@ -82,7 +83,7 @@ def test_import_skeleton_requires_explicit_edits(tmp_path):
         dict(operation="ensure", statement="import sys"),
     ]
     plan = plan_job(patch(ws, draft), ws)
-    assert plan.file_changes[0].content == b"import sys\n"
+    assert plan.file_changes[0].content == ("import sys" + newline).encode("utf-8")
     assert target.read_text(encoding="utf-8") == "import os\n"
 
 

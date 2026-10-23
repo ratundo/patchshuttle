@@ -442,3 +442,38 @@ Templates share the audit's `max_bytes` budget. A fragment is included only in
 full; otherwise `action_template_status: OMITTED_MAX_BYTES` is appended when the
 budget permits, and ordinary output truncation still applies. Request a larger
 budget if necessary. Audit actions never apply their generated drafts.
+
+
+### Static dependencies before refactoring
+
+Run `python_dependencies` as an audit action before planning module moves:
+
+```yaml
+- python_dependencies:
+    path: src
+    max_files: 300
+    max_findings: 2000
+    max_bytes: 50000
+```
+
+`path` is an explicit import-root directory: use `.` for a flat layout or `src`
+for a src layout. Paths in the JSON report are relative to that root. The
+policy's ignored/protected paths remain excluded. Module names are inferred
+from paths, including package initializers and namespace-package submodules.
+Ambiguous module paths and a root-level `__init__.py` are reported instead of
+assigning an assumed package name. Runtime sys.path changes are not modeled.
+
+The report lists static local import candidates and strongly connected cycle
+groups, including nested/conditional imports conservatively. Relative imports
+are interpreted within the selected root. External and unresolved imports are
+not distinguished. Star imports and selected dynamic-import call spellings are
+flagged; dynamic aliases or plugin/configuration loading may remain undetected.
+This is module import analysis, not symbol usage or caller resolution. No project
+code is executed, no references are rewritten, and no move is approved by this
+report. Absence of findings is not proof that a refactor is safe.
+
+File and finding limits are explicit. Cycle analysis uses all imports from the
+selected parseable, unambiguous modules, even when the displayed finding list is
+limited. File limits, parse errors and excluded files make the graph incomplete.
+The byte budget can truncate the entire JSON report using the normal audit
+marker; increase it before attempting machine parsing of truncated output.

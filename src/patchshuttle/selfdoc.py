@@ -15,6 +15,7 @@ AUDIT_ACTIONS = (
     "search_context",
     "read_symbol",
     "read_imports",
+    "python_dependencies",
     "python_structure",
     "find_files",
     "file_info",
@@ -253,6 +254,13 @@ for _topic in ("read_symbol", "read_imports"):
         "within max_bytes, otherwise omits it. Review in a separate patch job with checks. "
         "Symbol drafts copy current content and both guards; import drafts require nonempty edits."
     )
+_EXPLANATIONS["python_dependencies"] = (
+    "Read-only static import candidates under path, an explicit import-root directory (use src for src layouts). "
+    "Options: max_files 1-1000 (300), max_findings 1-10000 (2000), max_bytes 1-1000000 (50000). "
+    "Reports local import candidates, cycle groups, unresolved/ambiguous modules, parse errors and syntactic dynamic-import hints. "
+    "Includes nested/conditional imports conservatively. No runtime imports, symbol-reference resolution, automatic moves or rewrites. "
+    "File limits and policy exclusions limit the graph; no cycles is not proof of safe refactoring. Output may be truncated."
+)
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 
 

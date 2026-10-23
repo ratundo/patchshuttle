@@ -218,7 +218,7 @@ class _Planner:
         parameters = action.parameters
         paths: tuple[PurePosixPath, ...] = ()
         detail: str | None = None
-        if action.name in {"tree", "find_files"}:
+        if action.name in {"tree", "find_files", "python_dependencies"}:
             target = self._audit_target(
                 cast(str, parameters.path),
                 item_id=item_id,

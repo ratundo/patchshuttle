@@ -5,6 +5,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Add read-only `python_dependencies` for static local import candidates, cycle
+  groups and explicitly unresolved/dynamic cases before module refactoring.
+
 - Add opt-in, bounded action drafts to symbol/import audits with observed guards;
   fragments require review and never execute during audit.
 
