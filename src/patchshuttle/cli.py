@@ -8,6 +8,7 @@ import click
 
 from patchshuttle._version import __version__
 from patchshuttle.context import create_handoff, create_snapshot
+from patchshuttle.documentation.cli import docs_command, init_command
 from patchshuttle.errors import (
     ExecutionError,
     ExecutionErrorCode,
@@ -51,11 +52,9 @@ from patchshuttle.selfdoc import (
     render_schema,
 )
 from patchshuttle.workspace import (
-    CONFIG_RELATIVE_PATH,
     Workspace,
     discover_workspace,
     find_child_workspaces,
-    init_workspace,
     load_workspace,
 )
 
@@ -76,6 +75,8 @@ def main(workspace_path: Path | None) -> None:
 
 
 main.add_command(history_command)
+main.add_command(docs_command)
+main.add_command(init_command)
 
 
 @main.command()
@@ -108,37 +109,6 @@ def explain_command(topic: str) -> None:
     """Explain one supported operation or workflow TOPIC."""
 
     click.echo(render_explanation(topic), nl=False)
-
-
-@main.command("init")
-@click.option(
-    "--new-project",
-    is_flag=True,
-    help="Require an empty directory and record a new-project workspace.",
-)
-def init_command(new_project: bool) -> None:
-    """Initialize the current project without overwriting existing entries."""
-
-    try:
-        result = init_workspace(
-            _workspace_option() or Path.cwd(),
-            new_project=new_project,
-        )
-    except WorkspaceError as error:
-        click.echo(f"INIT_FAILED {error}", err=True)
-        raise click.exceptions.Exit(3) from error
-
-    click.echo(
-        "\n".join(
-            (
-                result.status.value,
-                f"project_id: {result.workspace.project_id}",
-                f"origin: {result.workspace.origin.value}",
-                f"config: {CONFIG_RELATIVE_PATH.as_posix()}",
-                f"created_entries: {len(result.created_paths)}",
-            )
-        )
-    )
 
 
 @main.command("validate")

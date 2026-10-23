@@ -208,6 +208,7 @@ def _handoff_text(
             "ai_handoff_version: 2",
             f"capabilities_hash: {capabilities_hash()}",
             "capabilities_command: patchshuttle capabilities",
+            "guide_refresh_command: patchshuttle docs refresh",
             "",
             "=== LATEST_RUN_SUMMARY ===",
             latest_summary,

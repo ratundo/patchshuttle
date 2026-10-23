@@ -77,6 +77,30 @@ changes must also invalidate the guard; both supplied guards must match.
 
 Retrieve the observed result through configured MCP history when available; otherwise request the resulting log. Never assume an MCP connection exists or infer success from a plan.
 
+## Refresh an existing workspace guide
+
+Updating the Python package or repeating `init` does not overwrite an existing
+`patches/AI_GUIDE.md`. Review the installed guide update with:
+
+```sh
+patchshuttle docs refresh
+patchshuttle docs refresh --apply --expected-plan <hash-from-preview>
+```
+
+The command updates only AI_GUIDE.md, never policy, schema or registry. It
+recognizes the bundled current template and published a4/a5/a6 prefixes. Text
+appended after a recognized template remains in place, including its original
+line endings. The generated prefix retains its LF/CRLF style and optional BOM.
+Inline customizations or unknown templates return MANUAL_REVIEW_REQUIRED and
+are not overwritten. Reconcile such content manually before using this command.
+
+Preview is read-only and bounded to 40000 characters. Applying requires the
+reviewed plan hash, rechecks under the workspace lock, preserves file permissions,
+and stores exact original bytes in `patches/state/ai-guide-<sha256>.bak` before
+atomic file replacement. A stale plan is rejected even when the guide is current.
+Backups are documentation recovery artifacts, not filesystem-job rollback records.
+The command does not make a live MCP connection or execute project code.
+
 ## Job kinds
 
 - `audit` - one or more read-only audit actions, no checks.

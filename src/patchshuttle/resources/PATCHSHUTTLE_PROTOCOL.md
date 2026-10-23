@@ -274,11 +274,16 @@ Run logs and early validation/planning failure logs contain a
 `PYTHON_DISCOVERY_EVALUATION` section. Its evidence scope is the current job.
 It reports explicit `.py` paths, executed Python-targeted audit actions,
 bounded audit output byte/line counts before whole-log redaction, declared
-text/symbol/line targeting,
+text/symbol/line/import/file-move targeting,
 and selected targeting failure signals. Unscoped searches are counted
 separately. The section performs no project scan, token estimate, semantic
 resolution, historical aggregation, or symbol-index recommendation;
 `index_assessment` remains `NOT_EVALUATED`.
+
+The separate `advisories` field can suggest `read_symbol` + `replace_symbol`
+when Python text actions have no symbol action or Python text targeting fails.
+`PYTHON_SYMBOL_ACTION_AVAILABLE` is a conditional suggestion, not evidence that
+a declaration was found. It has no effect on guards, checks or job semantics.
 
 The section also aggregates `matches`, `result_limit_reached`, and
 `duration_ms` already recorded by completed Python-targeted audit actions.
@@ -366,3 +371,27 @@ Unrelated source remains intact before the normal scoped formatter phase.
 Neither action rewrites callers, proves runtime compatibility, nor infers
 imports when moving files or symbols. A sequence of import edits needs the
 hash of each simulated intermediate import set, or separate audited jobs.
+
+## Refresh an existing workspace guide
+
+Updating the Python package or repeating `init` does not overwrite an existing
+`patches/AI_GUIDE.md`. Review the installed guide update with:
+
+```sh
+patchshuttle docs refresh
+patchshuttle docs refresh --apply --expected-plan <hash-from-preview>
+```
+
+The command updates only AI_GUIDE.md, never policy, schema or registry. It
+recognizes the bundled current template and published a4/a5/a6 prefixes. Text
+appended after a recognized template remains in place, including its original
+line endings. The generated prefix retains its LF/CRLF style and optional BOM.
+Inline customizations or unknown templates return MANUAL_REVIEW_REQUIRED and
+are not overwritten. Reconcile such content manually before using this command.
+
+Preview is read-only and bounded to 40000 characters. Applying requires the
+reviewed plan hash, rechecks under the workspace lock, preserves file permissions,
+and stores exact original bytes in `patches/state/ai-guide-<sha256>.bak` before
+atomic file replacement. A stale plan is rejected even when the guide is current.
+Backups are documentation recovery artifacts, not filesystem-job rollback records.
+The command does not make a live MCP connection or execute project code.

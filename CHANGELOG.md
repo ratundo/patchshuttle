@@ -5,6 +5,8 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Add reviewed `docs refresh` for recognized AI guide templates, retaining
+  appended owner notes and exact backups; unknown inline edits require review.
 - Add conditional Python symbol-edit guidance to CLI plans, full and compact
   logs, including targeting failures; advisory does not alter guards or policy.
 - Add operation-selection rules and an audit-to-patch example to AI guidance.

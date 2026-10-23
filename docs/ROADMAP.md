@@ -9,7 +9,11 @@ an a7 candidate is qualified; no a7 package has been published.
 Implemented locally: conditional symbol-edit advisory in plans/full/compact logs,
 operation selection rules, handoff example, MCP-aware retrieval guidance,
 transfer/import telemetry, and smaller presentation modules.
-Pending: hosted CI, doc refresh workflow for existing workspaces, clearer
+The first guidance milestone passed hosted Linux/Windows/PostgreSQL CI.
+Guide refresh now supports reviewed updates of recognized current/a4/a5/a6
+templates with appended notes, hashes and backups; inline customizations require
+manual review.
+Pending: hosted qualification of guide refresh, clearer
 indentation diagnostics, and final candidate/release qualification.
 
 ## Subsequent work, in priority order
