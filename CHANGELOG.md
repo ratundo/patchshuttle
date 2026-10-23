@@ -5,6 +5,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Explain structural replacement failures with bounded indentation context and
+  YAML guidance, without rewriting input or changing guard semantics.
+
 - Add reviewed `docs refresh` for recognized AI guide templates, retaining
   appended owner notes and exact backups; unknown inline edits require review.
 - Add conditional Python symbol-edit guidance to CLI plans, full and compact

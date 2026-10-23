@@ -13,8 +13,9 @@ The first guidance milestone passed hosted Linux/Windows/PostgreSQL CI.
 Guide refresh now supports reviewed updates of recognized current/a4/a5/a6
 templates with appended notes, hashes and backups; inline customizations require
 manual review.
-Pending: hosted qualification of guide refresh, clearer
-indentation diagnostics, and final candidate/release qualification.
+Guide refresh passed hosted CI. Structural replacement failures now include
+bounded indentation context and YAML guidance; input is never reindented.
+Pending: qualification of diagnostics and final candidate/release qualification.
 
 ## Subsequent work, in priority order
 

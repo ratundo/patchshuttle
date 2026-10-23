@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import codecs
 import difflib
 import hashlib
@@ -10,7 +9,6 @@ import json
 import re
 import shutil
 import stat
-import textwrap
 import tokenize
 from dataclasses import replace
 from importlib.util import find_spec
@@ -39,6 +37,7 @@ from patchshuttle.formatter_policy import (
 from patchshuttle.inventory import InventoryError
 from patchshuttle.models import Action, Check, Job, JobKind
 from patchshuttle.planning.imports import plan_import_edit
+from patchshuttle.planning.symbols import replacement_diagnostics, validate_replacement
 from patchshuttle.planning.types import (
     ActionDisposition,
     FileDisposition,
@@ -505,34 +504,20 @@ class _Planner:
 
         if parameters.expected_ast_sha256 is not None:
             try:
-                replacement_tree = ast.parse(textwrap.dedent(replacement))
-                expected_type = {
-                    "class": ast.ClassDef,
-                    "function": ast.FunctionDef,
-                    "async_function": ast.AsyncFunctionDef,
-                }[source.kind]
-                if (
-                    len(replacement_tree.body) != 1
-                    or not isinstance(replacement_tree.body[0], expected_type)
-                    or replacement_tree.body[0].name != parameters.symbol.split(".")[-1]
-                ):
-                    raise ValueError(
-                        "replacement must contain exactly the same symbol name and kind"
-                    )
-                compile(updated, path.as_posix(), "exec", dont_inherit=True)
-                resolved = find_symbol_source(
-                    updated, parameters.symbol, filename=str(path)
+                validate_replacement(
+                    updated,
+                    replacement,
+                    parameters.symbol,
+                    source.kind,
+                    path.as_posix(),
                 )
-                if resolved is None or resolved.kind != source.kind:
-                    raise ValueError(
-                        "replacement must preserve unique symbol resolution"
-                    )
             except (SyntaxError, ValueError) as exc:
                 raise self._error(
                     PlanningErrorCode.PYTHON_SOURCE_INVALID,
                     f"structural replacement failed validation: {exc}",
                     item_id,
                     path=path.as_posix(),
+                    details=replacement_diagnostics(selected.content, replacement),
                 ) from exc
 
         disposition = self._update_state(state, updated, item_id=item_id)
