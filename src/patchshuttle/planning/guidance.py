@@ -25,6 +25,7 @@ SYMBOL_WORKFLOW_EXAMPLE = """Python action fragments; audit first, then a separa
     path: app/models.py
     symbol: Service.run
     max_bytes: 50000
+    include_template: true
 # Later patch: copy the actual audit hash; preserve signature and indentation.
 - replace_symbol:
     path: app/models.py

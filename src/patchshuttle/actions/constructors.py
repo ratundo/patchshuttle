@@ -86,8 +86,9 @@ def read_symbol(
     symbol: str,
     *,
     max_bytes: int | None = None,
+    include_template: bool = False,
 ) -> Action:
-    parameters = {"path": path, "symbol": symbol}
+    parameters = {"path": path, "symbol": symbol, "include_template": include_template}
     if max_bytes is not None:
         parameters["max_bytes"] = max_bytes
     return Action({"read_symbol": parameters})
@@ -445,8 +446,10 @@ def _add_guards(
         parameters["expected_sha256"] = expected_sha256
 
 
-def read_imports(path: str, *, max_bytes: int | None = None) -> Action:
-    parameters = {"path": path}
+def read_imports(
+    path: str, *, max_bytes: int | None = None, include_template: bool = False
+) -> Action:
+    parameters = {"path": path, "include_template": include_template}
     if max_bytes is not None:
         parameters["max_bytes"] = max_bytes
     return Action({"read_imports": parameters})

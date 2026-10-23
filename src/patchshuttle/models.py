@@ -85,7 +85,18 @@ class SearchContextParameters(SearchParameters):
     after: ContextLineCount = 3
 
 
-class ReadImportsParameters(_FrozenModel):
+class _TemplateParameters(_FrozenModel):
+    include_template: bool = Field(default=False, strict=True)
+
+    @model_serializer(mode="wrap")
+    def serialize_template_option(self, handler):
+        payload = handler(self)
+        if not self.include_template:
+            payload.pop("include_template", None)
+        return payload
+
+
+class ReadImportsParameters(_TemplateParameters):
     path: NonEmptyString
     max_bytes: PositiveInteger | None = None
 
@@ -107,7 +118,7 @@ class EditImportsParameters(_FrozenModel):
     edits: Annotated[tuple[ImportEditStep, ...], Field(min_length=1, max_length=100)]
 
 
-class ReadSymbolParameters(_FrozenModel):
+class ReadSymbolParameters(_TemplateParameters):
     path: NonEmptyString
     symbol: PythonSymbol
     max_bytes: PositiveInteger | None = None

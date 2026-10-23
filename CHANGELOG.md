@@ -5,6 +5,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Add opt-in, bounded action drafts to symbol/import audits with observed guards;
+  fragments require review and never execute during audit.
+
 - Add `edit_imports`: 1-100 ordered import edits guarded by one initial import
   hash, with step diagnostics and the existing import safety checks.
 

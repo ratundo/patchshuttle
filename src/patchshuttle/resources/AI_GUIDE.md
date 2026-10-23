@@ -56,6 +56,7 @@ Audit action fragment (use an audit job):
     path: app/models.py
     symbol: Service.run
     max_bytes: 50000
+    include_template: true
 ```
 
 Later patch action fragment (use a separate patch job with project checks):
@@ -550,3 +551,23 @@ ambiguity, binding, star, semicolon and multi-alias restrictions. A failed step
 reports its 1-based index and rejects the plan without writing files. Successful
 plans use the normal formatter/check/transaction workflow. Callers and references
 are not rewritten. Each batch counts as one declared Python import action.
+
+
+### Audit-derived action drafts
+
+Set `include_template: true` on `read_symbol` or `read_imports` to request a
+JSON action fragment (also valid YAML) with the observed path and guard hashes.
+The default output and serialization of existing jobs remain unchanged.
+`read_symbol` copies the exact canonical symbol content, including decorators
+and destination indentation, into a no-op `replace_symbol` draft with both text
+and AST guards. Edit `new_content` deliberately. `read_imports` emits an
+`edit_imports` skeleton with `edits: []`; fill in at least one ensure/remove step.
+The empty skeleton is intentionally rejected by the patch schema.
+
+The fragment is not a complete job or authorization to execute. Put it in a
+separate patch job with a new ID and project checks. Use the same Python minor
+version; changed source or earlier actions may invalidate copied hashes.
+Templates share the audit's `max_bytes` budget. A fragment is included only in
+full; otherwise `action_template_status: OMITTED_MAX_BYTES` is appended when the
+budget permits, and ordinary output truncation still applies. Request a larger
+budget if necessary. Audit actions never apply their generated drafts.

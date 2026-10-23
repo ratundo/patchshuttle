@@ -247,6 +247,12 @@ _EXPLANATIONS["edit_imports"] = (
     "Each step retains single-import safety checks. A failure reports its step and rejects the plan without writes. "
     "No caller rewriting or automatic reordering."
 )
+for _topic in ("read_symbol", "read_imports"):
+    _EXPLANATIONS[_topic] += (
+        " Optional include_template: true adds a complete JSON action fragment (valid YAML) "
+        "within max_bytes, otherwise omits it. Review in a separate patch job with checks. "
+        "Symbol drafts copy current content and both guards; import drafts require nonempty edits."
+    )
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 
 

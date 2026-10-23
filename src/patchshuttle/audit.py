@@ -29,6 +29,11 @@ from patchshuttle.inventory import (
 from patchshuttle.models import JobKind
 from patchshuttle.planner import Plan, plan_job
 from patchshuttle.planning.imports import inspect_imports
+from patchshuttle.planning.templates import (
+    append_template,
+    imports_template,
+    symbol_template,
+)
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import detect_python_encoding
 
@@ -385,6 +390,12 @@ def _read_symbol(plan: Plan, parameters) -> str:
     limit = (
         parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes
     )
+    if parameters.include_template:
+        output = append_template(
+            output,
+            symbol_template(target.relative.as_posix(), parameters.symbol, source),
+            limit,
+        )
     bounded, _ = _bounded_output(output, limit)
     return bounded
 
@@ -848,7 +859,11 @@ def _read_imports(plan: Plan, parameters) -> str:
             *(ast.unparse(node) for node in nodes),
         )
     )
-    return _bounded_output(
-        output,
-        parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes,
-    )[0]
+    limit = (
+        parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes
+    )
+    if parameters.include_template:
+        output = append_template(
+            output, imports_template(target.relative.as_posix(), digest), limit
+        )
+    return _bounded_output(output, limit)[0]
