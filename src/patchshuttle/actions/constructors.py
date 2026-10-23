@@ -480,8 +480,22 @@ def remove_import(
     )
 
 
+def edit_imports(path: str, edits, *, expected_imports_ast_sha256: str) -> Action:
+    """Apply ordered import edits guarded by the initial simulated import set."""
+    return Action(
+        {
+            "edit_imports": {
+                "path": path,
+                "edits": edits,
+                "expected_imports_ast_sha256": expected_imports_ast_sha256,
+            }
+        }
+    )
+
+
 __all__ = [
     "read_imports",
+    "edit_imports",
     "ensure_import",
     "remove_import",
     "apply_diff",

@@ -15,7 +15,9 @@ templates with appended notes, hashes and backups; inline customizations require
 manual review.
 Guide refresh passed hosted CI. Structural replacement failures now include
 bounded indentation context and YAML guidance; input is never reindented.
-Pending: qualification of diagnostics and final candidate/release qualification.
+Indentation diagnostics passed both hosted CI runs. Batch import editing with
+one initial guard is implemented; qualification is in progress.
+Pending: batch import qualification and final candidate/release qualification.
 
 ## Subsequent work, in priority order
 

@@ -341,7 +341,7 @@ class _Planner:
             self._plan_file_move(action, item_id=item_id)
         elif action.name in {"move_range", "move_symbol"}:
             self._plan_transfer(action, item_id=item_id)
-        elif action.name in {"ensure_import", "remove_import"}:
+        elif action.name in {"ensure_import", "remove_import", "edit_imports"}:
             plan_import_edit(self, action, item_id=item_id)
         elif action.name == "replace_symbol":
             self._plan_symbol_edit(action, item_id=item_id)

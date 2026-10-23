@@ -124,7 +124,7 @@ def evaluate_python_discovery(
 
         if not python_targeted:
             continue
-        if name in {"ensure_import", "remove_import"}:
+        if name in {"ensure_import", "remove_import", "edit_imports"}:
             import_actions += 1
         if name == "move_file":
             file_moves += 1

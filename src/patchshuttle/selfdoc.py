@@ -28,6 +28,7 @@ CHANGE_ACTIONS = (
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "edit_imports",
     "ensure_import",
     "remove_import",
     "insert_before",
@@ -238,6 +239,13 @@ _EXPLANATIONS["ensure_import"] = (
 )
 _EXPLANATIONS["remove_import"] = (
     "Remove one exact top-level import alias. Same parameters as ensure_import. Absent alias is a guarded no-op; multi-alias removal and shared semicolon lines are rejected. Comments are retained; callers are not rewritten."
+)
+_EXPLANATIONS["edit_imports"] = (
+    "Apply 1-100 ordered import edits with one initial expected_imports_ast_sha256 from read_imports. "
+    "Requires path and edits: [{operation: ensure|remove, statement: ...}]. "
+    "The guard checks the simulated file at action entry, even for no-op; earlier actions may invalidate it. "
+    "Each step retains single-import safety checks. A failure reports its step and rejects the plan without writes. "
+    "No caller rewriting or automatic reordering."
 )
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 

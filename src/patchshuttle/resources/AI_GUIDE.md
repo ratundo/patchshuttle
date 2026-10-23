@@ -41,7 +41,7 @@ For existing Python classes/functions/methods, prefer read_symbol + replace_symb
 | Inspect a known declaration and obtain guards | `read_symbol` |
 | Replace one existing declaration | `replace_symbol` |
 | Move a declaration | `move_symbol` |
-| Inspect/edit supported imports | `read_imports`, then `ensure_import` / `remove_import` |
+| Inspect/edit supported imports | `read_imports`, then `ensure_import` / `remove_import` / `edit_imports` |
 | Move a file | `move_file` |
 | Module assignment, comments, non-Python text, templates | Guarded text/range actions |
 | New file | `create_file` |
@@ -521,5 +521,32 @@ module is compiled without importing or executing it.
 
 Unrelated source remains intact before the normal scoped formatter phase.
 Neither action rewrites callers, proves runtime compatibility, nor infers
-imports when moving files or symbols. A sequence of import edits needs the
-hash of each simulated intermediate import set, or separate audited jobs.
+imports when moving files or symbols. Separate import actions need the hash of each simulated intermediate import
+set, or separate audited jobs. Prefer `edit_imports` for one guarded batch.
+
+
+### Batch import edits
+
+Use `read_imports` followed by `edit_imports` for multiple changes to one file:
+
+```yaml
+- edit_imports:
+    path: app/services.py
+    expected_imports_ast_sha256: "<imports_ast_sha256 from read_imports>"
+    edits:
+      - operation: remove
+        statement: from old_module import Service
+      - operation: ensure
+        statement: from new_module import Service
+```
+
+`edits` contains 1-100 steps with operation `ensure` or `remove`. The initial
+hash is checked even for a no-op, against the simulated file at this action's
+entry. Earlier actions in the same job may therefore invalidate an audit hash.
+The caller supplies no intermediate hashes. Steps execute in the given order;
+remove a conflicting binding before adding its replacement. Every intermediate
+state must pass the existing single-import checks, including compilation,
+ambiguity, binding, star, semicolon and multi-alias restrictions. A failed step
+reports its 1-based index and rejects the plan without writing files. Successful
+plans use the normal formatter/check/transaction workflow. Callers and references
+are not rewritten. Each batch counts as one declared Python import action.

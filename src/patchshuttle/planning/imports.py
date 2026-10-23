@@ -155,6 +155,26 @@ def edit_import(text: str, statement: str, expected: str, *, remove: bool) -> st
     return updated
 
 
+def edit_import_batch(text: str, edits, expected: str) -> str:
+    """Validate one caller guard, then simulate ordered edits without writes."""
+    _, _, digest = inspect_imports(text)
+    if digest != expected.casefold():
+        raise ValueError(
+            "imports AST guard does not match the batch initial simulated file"
+        )
+    for index, edit in enumerate(edits, start=1):
+        try:
+            text = edit_import(
+                text, edit.statement, digest, remove=edit.operation == "remove"
+            )
+        except (SyntaxError, ValueError) as exc:
+            raise ValueError(
+                f"import batch step {index} ({edit.operation}) failed: {exc}"
+            ) from exc
+        _, _, digest = inspect_imports(text)
+    return text
+
+
 def plan_import_edit(planner, action, *, item_id):
     parameters = action.parameters
     path = planner.policy.normalize(parameters.path)
@@ -163,12 +183,17 @@ def plan_import_edit(planner, action, *, item_id):
     try:
         if path.suffix.casefold() != ".py":
             raise ValueError("structural import edits require a .py file")
-        updated = edit_import(
-            state.text,
-            parameters.statement,
-            parameters.expected_imports_ast_sha256,
-            remove=action.name == "remove_import",
-        )
+        if action.name == "edit_imports":
+            updated = edit_import_batch(
+                state.text, parameters.edits, parameters.expected_imports_ast_sha256
+            )
+        else:
+            updated = edit_import(
+                state.text,
+                parameters.statement,
+                parameters.expected_imports_ast_sha256,
+                remove=action.name == "remove_import",
+            )
     except (SyntaxError, ValueError) as exc:
         raise planner._error(
             PlanningErrorCode.PYTHON_SOURCE_INVALID,

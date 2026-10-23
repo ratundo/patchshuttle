@@ -5,6 +5,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Add `edit_imports`: 1-100 ordered import edits guarded by one initial import
+  hash, with step diagnostics and the existing import safety checks.
+
 - Explain structural replacement failures with bounded indentation context and
   YAML guidance, without rewriting input or changing guard semantics.
 

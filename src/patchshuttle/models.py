@@ -96,6 +96,17 @@ class ImportEditParameters(_FrozenModel):
     expected_imports_ast_sha256: Sha256Hex
 
 
+class ImportEditStep(_FrozenModel):
+    operation: Literal["ensure", "remove"]
+    statement: NonEmptyString
+
+
+class EditImportsParameters(_FrozenModel):
+    path: NonEmptyString
+    expected_imports_ast_sha256: Sha256Hex
+    edits: Annotated[tuple[ImportEditStep, ...], Field(min_length=1, max_length=100)]
+
+
 class ReadSymbolParameters(_FrozenModel):
     path: NonEmptyString
     symbol: PythonSymbol
@@ -380,6 +391,10 @@ class EnsureImportAction(_FrozenModel):
     ensure_import: ImportEditParameters
 
 
+class EditImportsAction(_FrozenModel):
+    edit_imports: EditImportsParameters
+
+
 class RemoveImportAction(_FrozenModel):
     remove_import: ImportEditParameters
 
@@ -478,6 +493,7 @@ ActionValue: TypeAlias = (
     | SearchAction
     | SearchContextAction
     | ReadImportsAction
+    | EditImportsAction
     | EnsureImportAction
     | RemoveImportAction
     | ReadSymbolAction
@@ -521,6 +537,7 @@ ActionName: TypeAlias = Literal[
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "edit_imports",
     "ensure_import",
     "remove_import",
     "insert_before",
@@ -542,6 +559,7 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "search_context": SearchContextAction,
     "read_symbol": ReadSymbolAction,
     "read_imports": ReadImportsAction,
+    "edit_imports": EditImportsAction,
     "ensure_import": EnsureImportAction,
     "remove_import": RemoveImportAction,
     "python_structure": PythonStructureAction,
@@ -590,6 +608,7 @@ CHANGE_ACTION_NAMES = frozenset(
         "create_file",
         "replace_exact",
         "replace_symbol",
+        "edit_imports",
         "ensure_import",
         "remove_import",
         "insert_before",
