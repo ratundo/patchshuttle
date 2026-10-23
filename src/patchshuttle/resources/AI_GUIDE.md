@@ -43,6 +43,7 @@ For existing Python classes/functions/methods, prefer read_symbol + replace_symb
 | Move a declaration | `move_symbol` |
 | Inspect/edit supported imports | `read_imports`, then `ensure_import` / `remove_import` / `edit_imports` |
 | Inspect module imports and cycles before moves | `python_dependencies` |
+| Find possible symbol uses before moves | `python_references` |
 | Move a file | `move_file` |
 | Module assignment, comments, non-Python text, templates | Guarded text/range actions |
 | New file | `create_file` |
@@ -607,3 +608,31 @@ selected parseable, unambiguous modules, even when the displayed finding list is
 limited. File limits, parse errors and excluded files make the graph incomplete.
 The byte budget can truncate the entire JSON report using the normal audit
 marker; increase it before attempting machine parsing of truncated output.
+
+
+### Possible symbol references
+
+Use `python_references` to collect review candidates before moving a declaration:
+
+```yaml
+- python_references:
+    path: src
+    module: app.services
+    symbol: Service.run
+    max_files: 300
+    max_findings: 2000
+    max_bytes: 50000
+```
+
+The import-root and bounds follow `python_dependencies`. The report checks whether
+the declaration resolves uniquely in the scanned module, and reports import
+prefixes, alias-qualified name/attribute expressions, and unresolved attributes
+with the same final name. Locations use 1-based lines and zero-based UTF-8 byte
+columns, as provided by Python AST. Findings are candidates, not verified callers.
+All imports in a file are considered without scope or control-flow analysis;
+shadowing/rebinding can create false positives. Instance types, reexport chains,
+strings, dynamic lookup and configuration references are not resolved. Multiple
+AST nodes on one expression may yield overlapping candidates. Missing/ambiguous
+targets are explicitly reported, and excluded/truncated files limit the scan.
+Review candidates using read_symbol/search_context and project tests before
+writing explicit edits. This audit does not rewrite or approve a move.

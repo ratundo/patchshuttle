@@ -192,3 +192,8 @@ class _TextState:
     codec: str
     bom: bytes
     newline: NewlineStyle
+
+
+DIRECTORY_AUDIT_ACTIONS = frozenset(
+    {"tree", "find_files", "python_dependencies", "python_references"}
+)

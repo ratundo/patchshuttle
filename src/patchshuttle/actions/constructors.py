@@ -515,7 +515,31 @@ def python_dependencies(
     )
 
 
+def python_references(
+    module: str,
+    symbol: str,
+    *,
+    path: str = ".",
+    max_files: int = 300,
+    max_findings: int = 2000,
+    max_bytes: int = 50000,
+) -> Action:
+    return Action(
+        {
+            "python_references": dict(
+                module=module,
+                symbol=symbol,
+                path=path,
+                max_files=max_files,
+                max_findings=max_findings,
+                max_bytes=max_bytes,
+            )
+        }
+    )
+
+
 __all__ = [
+    "python_references",
     "python_dependencies",
     "read_imports",
     "edit_imports",

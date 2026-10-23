@@ -15,6 +15,7 @@ AUDIT_ACTIONS = (
     "search_context",
     "read_symbol",
     "read_imports",
+    "python_references",
     "python_dependencies",
     "python_structure",
     "find_files",
@@ -260,6 +261,13 @@ _EXPLANATIONS["python_dependencies"] = (
     "Reports local import candidates, cycle groups, unresolved/ambiguous modules, parse errors and syntactic dynamic-import hints. "
     "Includes nested/conditional imports conservatively. No runtime imports, symbol-reference resolution, automatic moves or rewrites. "
     "File limits and policy exclusions limit the graph; no cycles is not proof of safe refactoring. Output may be truncated."
+)
+_EXPLANATIONS["python_references"] = (
+    "Audit possible references to module + symbol, e.g. module: app.services, symbol: Service.run. "
+    "path is the explicit import root; max_files, max_findings and max_bytes match python_dependencies. "
+    "Reports target declaration status, import-prefix candidates, alias-qualified expressions and unresolved attributes. "
+    "No binding/type inference, reexport-chain resolution, dynamic/string lookup or automatic rewrites. "
+    "Shadowing can create false positives; absence of candidates does not establish safety."
 )
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 

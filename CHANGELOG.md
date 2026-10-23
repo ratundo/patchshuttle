@@ -5,6 +5,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Add `python_references` for bounded, explicitly unverified symbol-reference
+  candidates with import aliases and unresolved attributes.
+
 - Add read-only `python_dependencies` for static local import candidates, cycle
   groups and explicitly unresolved/dynamic cases before module refactoring.
 

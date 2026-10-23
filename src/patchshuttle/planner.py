@@ -31,14 +31,13 @@ from patchshuttle._line_ranges import (
 )
 from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle.errors import PlanningError, PlanningErrorCode
-from patchshuttle.formatter_policy import (
-    FORMATTER_ORDER,
-)
+from patchshuttle.formatter_policy import FORMATTER_ORDER
 from patchshuttle.inventory import InventoryError
 from patchshuttle.models import Action, Check, Job, JobKind
 from patchshuttle.planning.imports import plan_import_edit
 from patchshuttle.planning.symbols import replacement_diagnostics, validate_replacement
 from patchshuttle.planning.types import (
+    DIRECTORY_AUDIT_ACTIONS,
     ActionDisposition,
     FileDisposition,
     NewlineStyle,
@@ -218,7 +217,7 @@ class _Planner:
         parameters = action.parameters
         paths: tuple[PurePosixPath, ...] = ()
         detail: str | None = None
-        if action.name in {"tree", "find_files", "python_dependencies"}:
+        if action.name in DIRECTORY_AUDIT_ACTIONS:
             target = self._audit_target(
                 cast(str, parameters.path),
                 item_id=item_id,

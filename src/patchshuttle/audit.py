@@ -21,6 +21,7 @@ from patchshuttle._process import ProcessCommand, ProcessStatus, run_process
 from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle._version import __version__
 from patchshuttle.analysis.dependencies import analyze_dependencies
+from patchshuttle.analysis.references import analyze_references
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, PolicyError
 from patchshuttle.inventory import (
     InventoryError,
@@ -175,6 +176,8 @@ def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
         return AuditStatus.COMPLETED, _read_imports(plan, parameters)
     if name == "read_symbol":
         return AuditStatus.COMPLETED, _read_symbol(plan, parameters)
+    if name == "python_references":
+        return AuditStatus.COMPLETED, _python_dependencies(plan, parameters)
     if name == "python_dependencies":
         return AuditStatus.COMPLETED, _python_dependencies(plan, parameters)
     if name == "python_structure":
@@ -411,7 +414,12 @@ def _python_dependencies(plan: Plan, parameters) -> str:
     for path, target in candidates[: parameters.max_files]:
         _, text = _decode_text(_read_regular_file(plan, target), path=path)
         files[path.relative_to(root.relative).as_posix()] = text
-    report = analyze_dependencies(files, parameters.max_findings)
+    if hasattr(parameters, "module"):
+        report = analyze_references(
+            files, parameters.module, parameters.symbol, parameters.max_findings
+        )
+    else:
+        report = analyze_dependencies(files, parameters.max_findings)
     report["import_root"] = root.relative.as_posix()
     report["files_considered"] = len(files)
     report["file_limit_reached"] = len(candidates) > parameters.max_files

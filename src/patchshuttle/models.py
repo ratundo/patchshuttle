@@ -131,6 +131,11 @@ class PythonDependenciesParameters(_FrozenModel):
     max_bytes: Annotated[int, Field(strict=True, ge=1, le=1000000)] = 50000
 
 
+class PythonReferencesParameters(PythonDependenciesParameters):
+    module: PythonSymbol
+    symbol: PythonSymbol
+
+
 class PythonStructureParameters(_FrozenModel):
     path: NonEmptyString = "."
     max_files: PositiveInteger = 300
@@ -425,6 +430,10 @@ class PythonDependenciesAction(_FrozenModel):
     python_dependencies: PythonDependenciesParameters
 
 
+class PythonReferencesAction(_FrozenModel):
+    python_references: PythonReferencesParameters
+
+
 class PythonStructureAction(_FrozenModel):
     python_structure: PythonStructureParameters
 
@@ -519,6 +528,7 @@ ActionValue: TypeAlias = (
     | EnsureImportAction
     | RemoveImportAction
     | ReadSymbolAction
+    | PythonReferencesAction
     | PythonDependenciesAction
     | PythonStructureAction
     | FindFilesAction
@@ -549,6 +559,7 @@ ActionName: TypeAlias = Literal[
     "search_context",
     "read_symbol",
     "read_imports",
+    "python_references",
     "python_dependencies",
     "python_structure",
     "find_files",
@@ -586,6 +597,7 @@ _ACTION_MODELS: dict[str, type[_FrozenModel]] = {
     "edit_imports": EditImportsAction,
     "ensure_import": EnsureImportAction,
     "remove_import": RemoveImportAction,
+    "python_references": PythonReferencesAction,
     "python_dependencies": PythonDependenciesAction,
     "python_structure": PythonStructureAction,
     "find_files": FindFilesAction,
@@ -618,6 +630,7 @@ AUDIT_ACTION_NAMES = frozenset(
         "search_context",
         "read_symbol",
         "read_imports",
+        "python_references",
         "python_dependencies",
         "python_structure",
         "find_files",
