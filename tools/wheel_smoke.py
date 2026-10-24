@@ -14,6 +14,7 @@ from pathlib import Path
 
 _WORKFLOW = r"""
 from importlib.metadata import version
+from importlib.resources import files
 from pathlib import Path
 
 from patchshuttle import (
@@ -33,6 +34,11 @@ from patchshuttle.history import HISTORY_SCHEMA_VERSION, latest_history_record
 root = Path.cwd() / "project"
 root.mkdir()
 workspace = init_workspace(root, new_project=True).workspace
+bundled_guide = files("patchshuttle.resources").joinpath("AI_GUIDE.md").read_text("utf-8")
+rendered_guide = (root / "patches/AI_GUIDE.md").read_text("utf-8")
+assert rendered_guide == bundled_guide.replace("{{PROJECT_ID}}", workspace.project_id)
+for required in ("Start here: installed contract and evidence", "edit_imports", "python_references", "new_content: |2"):
+    assert required in rendered_guide, required
 workspace.config_path.write_text(
     workspace.config_path.read_text("utf-8")
     .replace("enabled = false", "enabled = true", 1)
@@ -243,6 +249,12 @@ def smoke_wheel(wheel: Path, expected_version: str) -> None:
                 "arbitrary_shell_action: unavailable",
                 "hash_range",
                 "replace_range",
+                "read_symbol",
+                "replace_symbol",
+                "read_imports",
+                "edit_imports",
+                "python_dependencies",
+                "python_references",
             )
         ):
             raise RuntimeError("installed capability output is incomplete")

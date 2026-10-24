@@ -3,6 +3,36 @@
 All notable changes to PatchShuttle are recorded in this file. The project
 uses semantic versioning, including Python-compatible pre-release versions.
 
+## 0.1.0a7 - release candidate (not yet published)
+
+- Audit AI instructions: complete action catalogs, correct method YAML indentation
+  and job-ID rules, clarify guard sources, MCP limits and database boundaries.
+
+- Add `python_references` for bounded, explicitly unverified symbol-reference
+  candidates with import aliases and unresolved attributes.
+
+- Add read-only `python_dependencies` for static local import candidates, cycle
+  groups and explicitly unresolved/dynamic cases before module refactoring.
+
+- Add opt-in, bounded action drafts to symbol/import audits with observed guards;
+  fragments require review and never execute during audit.
+
+- Add `edit_imports`: 1-100 ordered import edits guarded by one initial import
+  hash, with step diagnostics and the existing import safety checks.
+
+- Explain structural replacement failures with bounded indentation context and
+  YAML guidance, without rewriting input or changing guard semantics.
+
+- Add reviewed `docs refresh` for recognized AI guide templates, retaining
+  appended owner notes and exact backups; unknown inline edits require review.
+- Add conditional Python symbol-edit guidance to CLI plans, full and compact
+  logs, including targeting failures; advisory does not alter guards or policy.
+- Add operation-selection rules and an audit-to-patch example to AI guidance.
+- Prefer configured MCP history retrieval, retaining manual logs as fallback.
+- Count symbol/range transfers and report structural imports and file moves.
+- Extract plan and discovery-log presentation into smaller modules without
+  relaxing the existing architecture ratchet.
+
 ## 0.1.0a6 - 2026-10-21
 
 ### Added

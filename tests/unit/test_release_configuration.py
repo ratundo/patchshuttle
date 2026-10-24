@@ -89,7 +89,7 @@ def test_testpypi_and_pypi_use_isolated_trusted_publish_jobs() -> None:
 
 
 def test_source_version_matches_release_candidate() -> None:
-    assert source_version(Path.cwd()) == "0.1.0a6"
+    assert source_version(Path.cwd()) == "0.1.0a7"
 
 
 def test_ci_does_not_mask_pytest_failure_with_a_later_native_command() -> None:

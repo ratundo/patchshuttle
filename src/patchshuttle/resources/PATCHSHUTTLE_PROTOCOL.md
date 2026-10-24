@@ -31,7 +31,10 @@ name.
 - `search`: `path`, `text`, `glob`, `case_sensitive`, `max_results`.
 - `search_context`: the `search` fields plus bounded `before` and `after`
   physical-line counts.
-- `read_symbol`: Python `path`, dotted `symbol`, and optional `max_bytes`.
+- `read_symbol`: Python `path`, dotted `symbol`, optional `max_bytes` and `include_template`.
+- `read_imports`: Python `path`, optional `max_bytes` and `include_template`.
+- `python_dependencies`: import-root `path`, optional `max_files`, `max_findings`, `max_bytes`.
+- `python_references`: `module`, `symbol`, import-root `path`, optional `max_files`, `max_findings`, `max_bytes`.
 - `python_structure`: optional `path`, `max_files`, `max_symbols`, and `compact`.
 - `find_files`: `path`, `glob`, `max_results`.
 - `file_info`: `path`.
@@ -84,7 +87,8 @@ patch scope. The normal audit output limit remains authoritative.
 - `replace_exact`: `path`, `old`, `new`, `expected_count`.
 - `replace_symbol`: `path`, dotted `symbol`, and `new_content`, plus
   `expected_sha256` and/or `expected_ast_sha256` from `read_symbol`.
-  Both must match when both are supplied. The AST guard ignores formatting
+  Both must match for changed content; identical desired source is NO_CHANGE
+  even with old guard values. The AST guard ignores formatting
   and ordinary comments and is scoped to the reported `ast_python` version.
   AST-guarded replacements must preserve the declaration name and kind,
   compile without execution, and retain unique qualified-symbol resolution.
@@ -98,6 +102,11 @@ patch scope. The normal audit output limit remains authoritative.
 - `insert_at_line`: `path`, positive `line`, `position: before|after`,
   non-empty `content`, plus `expected_content` and/or `expected_sha256`.
 - `apply_diff`: `diff`, optional `strip` from `0` through `2`.
+- `ensure_import`, `remove_import`: `path`, `statement`, `expected_imports_ast_sha256`.
+- `edit_imports`: `path`, `expected_imports_ast_sha256`, ordered `edits`.
+- `move_file`: `path`, `destination`, raw-byte `expected_sha256`.
+- `move_range`: guarded source range, `destination`, `destination_line`, `expected_destination_sha256`.
+- `move_symbol`: `path`, `symbol`, `expected_ast_sha256`, `destination`, `expected_destination_sha256`, optional `destination_class`.
 
 Line numbers are 1-based and are only positions, never proof of identity.
 Every line-changing action requires at least one guard. If both guards are
@@ -274,11 +283,16 @@ Run logs and early validation/planning failure logs contain a
 `PYTHON_DISCOVERY_EVALUATION` section. Its evidence scope is the current job.
 It reports explicit `.py` paths, executed Python-targeted audit actions,
 bounded audit output byte/line counts before whole-log redaction, declared
-text/symbol/line targeting,
+text/symbol/line/import/file-move targeting,
 and selected targeting failure signals. Unscoped searches are counted
 separately. The section performs no project scan, token estimate, semantic
 resolution, historical aggregation, or symbol-index recommendation;
 `index_assessment` remains `NOT_EVALUATED`.
+
+The separate `advisories` field can suggest `read_symbol` + `replace_symbol`
+when Python text actions have no symbol action or Python text targeting fails.
+`PYTHON_SYMBOL_ACTION_AVAILABLE` is a conditional suggestion, not evidence that
+a declaration was found. It has no effect on guards, checks or job semantics.
 
 The section also aggregates `matches`, `result_limit_reached`, and
 `duration_ms` already recorded by completed Python-targeted audit actions.
@@ -364,5 +378,139 @@ module is compiled without importing or executing it.
 
 Unrelated source remains intact before the normal scoped formatter phase.
 Neither action rewrites callers, proves runtime compatibility, nor infers
-imports when moving files or symbols. A sequence of import edits needs the
-hash of each simulated intermediate import set, or separate audited jobs.
+imports when moving files or symbols. Separate import actions need the hash of each simulated intermediate import
+set, or separate audited jobs. Prefer `edit_imports` for one guarded batch.
+
+## Refresh an existing workspace guide
+
+Updating the Python package or repeating `init` does not overwrite an existing
+`patches/AI_GUIDE.md`. Review the installed guide update with:
+
+```sh
+patchshuttle docs refresh
+patchshuttle docs refresh --apply --expected-plan <hash-from-preview>
+```
+
+The command updates only AI_GUIDE.md, never policy, schema or registry. It
+recognizes the bundled current template and published a4/a5/a6 prefixes. Text
+appended after a recognized template remains in place, including its original
+line endings. The generated prefix retains its LF/CRLF style and optional BOM.
+Inline customizations or unknown templates return MANUAL_REVIEW_REQUIRED and
+are not overwritten. Reconcile such content manually before using this command.
+
+Preview is read-only and bounded to 40000 characters. Applying requires the
+reviewed plan hash, rechecks under the workspace lock, preserves file permissions,
+and stores exact original bytes in `patches/state/ai-guide-<sha256>.bak` before
+atomic file replacement. A stale plan is rejected even when the guide is current.
+Backups are documentation recovery artifacts, not filesystem-job rollback records.
+The command does not make a live MCP connection or execute project code.
+
+
+### Batch import edits
+
+Use `read_imports` followed by `edit_imports` for multiple changes to one file:
+
+```yaml
+- edit_imports:
+    path: app/services.py
+    expected_imports_ast_sha256: "<imports_ast_sha256 from read_imports>"
+    edits:
+      - operation: remove
+        statement: from old_module import Service
+      - operation: ensure
+        statement: from new_module import Service
+```
+
+`edits` contains 1-100 steps with operation `ensure` or `remove`. The initial
+hash is checked even for a no-op, against the simulated file at this action's
+entry. Earlier actions in the same job may therefore invalidate an audit hash.
+The caller supplies no intermediate hashes. Steps execute in the given order;
+remove a conflicting binding before adding its replacement. Every intermediate
+state must pass the existing single-import checks, including compilation,
+ambiguity, binding, star, semicolon and multi-alias restrictions. A failed step
+reports its 1-based index and rejects the plan without writing files. Successful
+plans use the normal formatter/check/transaction workflow. Callers and references
+are not rewritten. Each batch counts as one declared Python import action.
+
+
+### Audit-derived action drafts
+
+Set `include_template: true` on `read_symbol` or `read_imports` to request a
+JSON action fragment (also valid YAML) with the observed path and guard hashes.
+The default output and serialization of existing jobs remain unchanged.
+`read_symbol` copies the exact canonical symbol content, including decorators
+and destination indentation, into a no-op `replace_symbol` draft with both text
+and AST guards. Edit `new_content` deliberately. `read_imports` emits an
+`edit_imports` skeleton with `edits: []`; fill in at least one ensure/remove step.
+The empty skeleton is intentionally rejected by the patch schema.
+
+The fragment is not a complete job or authorization to execute. Put it in a
+separate patch job with a new ID and project checks. Use the same Python minor
+version; changed source or earlier actions may invalidate copied hashes.
+Templates share the audit's `max_bytes` budget. A fragment is included only in
+full; otherwise `action_template_status: OMITTED_MAX_BYTES` is appended when the
+budget permits, and ordinary output truncation still applies. Request a larger
+budget if necessary. Audit actions never apply their generated drafts.
+
+
+### Static dependencies before refactoring
+
+Run `python_dependencies` as an audit action before planning module moves:
+
+```yaml
+- python_dependencies:
+    path: src
+    max_files: 300
+    max_findings: 2000
+    max_bytes: 50000
+```
+
+`path` is an explicit import-root directory: use `.` for a flat layout or `src`
+for a src layout. Paths in the JSON report are relative to that root. The
+policy's ignored/protected paths remain excluded. Module names are inferred
+from paths, including package initializers and namespace-package submodules.
+Ambiguous module paths and a root-level `__init__.py` are reported instead of
+assigning an assumed package name. Runtime sys.path changes are not modeled.
+
+The report lists static local import candidates and strongly connected cycle
+groups, including nested/conditional imports conservatively. Relative imports
+are interpreted within the selected root. External and unresolved imports are
+not distinguished. Star imports and selected dynamic-import call spellings are
+flagged; dynamic aliases or plugin/configuration loading may remain undetected.
+This is module import analysis, not symbol usage or caller resolution. No project
+code is executed, no references are rewritten, and no move is approved by this
+report. Absence of findings is not proof that a refactor is safe.
+
+File and finding limits are explicit. Cycle analysis uses all imports from the
+selected parseable, unambiguous modules, even when the displayed finding list is
+limited. File limits, parse errors and excluded files make the graph incomplete.
+The byte budget can truncate the entire JSON report using the normal audit
+marker; increase it before attempting machine parsing of truncated output.
+
+
+### Possible symbol references
+
+Use `python_references` to collect review candidates before moving a declaration:
+
+```yaml
+- python_references:
+    path: src
+    module: app.services
+    symbol: Service.run
+    max_files: 300
+    max_findings: 2000
+    max_bytes: 50000
+```
+
+The import-root and bounds follow `python_dependencies`. The report checks whether
+the declaration resolves uniquely in the scanned module, and reports import
+prefixes, alias-qualified name/attribute expressions, and unresolved attributes
+with the same final name. Locations use 1-based lines and zero-based UTF-8 byte
+columns, as provided by Python AST. Findings are candidates, not verified callers.
+All imports in a file are considered without scope or control-flow analysis;
+shadowing/rebinding can create false positives. Instance types, reexport chains,
+strings, dynamic lookup and configuration references are not resolved. Multiple
+AST nodes on one expression may yield overlapping candidates. Missing/ambiguous
+targets are explicitly reported, and excluded/truncated files limit the scan.
+Review candidates using read_symbol/search_context and project tests before
+writing explicit edits. This audit does not rewrite or approve a move.

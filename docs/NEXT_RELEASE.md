@@ -1,7 +1,29 @@
 # Next release: structural editing and controlled refactoring
 
-Status: 0.1.0a6 candidate undergoing release qualification.
-Base: 0.1.0a5. Publication requires the release gates below.
+Status: 0.1.0a6 published; see RELEASE.md for immutable publication evidence.
+The sections below describe a6 scope and remaining work.
+
+## 0.1.0a7 release candidate
+
+Implemented a7 scope:
+
+- Python operation-selection rules and conditional advisory feedback in plans,
+  full/compact logs and handoff; transfer/import telemetry.
+- Reviewed `docs refresh` for recognized AI guide templates, preserving appended
+  owner notes and backups; inline customizations still require manual review.
+- Bounded indentation diagnostics for structural replacements.
+- `edit_imports`: ordered import changes with one initial import-set guard.
+- Optional `include_template` drafts from `read_symbol` and `read_imports`.
+- Read-only `python_dependencies` and `python_references` for bounded static
+  dependency/cycle and unverified reference candidates. No automatic rewrites.
+- Audited AI guide, handoff, protocol and CLI explanations, with executable
+  YAML example tests and action-catalog checks.
+
+No a7 publication is recorded yet. Source version is now `0.1.0a7` for candidate
+qualification. Final commit CI, TestPyPI and production publication gates remain
+required before recording this version as released.
+See ROADMAP.md for the broader backlog. The following sections record the a6
+foundation and its remaining limitations, not additional a7 completion claims.
 
 ## Implemented in this branch
 
@@ -28,7 +50,7 @@ This is AST-selected source replacement, not AST unparse of the whole file.
     path: services/offers.py
     symbol: OfferService.calculate
     expected_ast_sha256: "<64 hex digits from read_symbol>"
-    new_content: |
+    new_content: |2
           def calculate(self, amount):
               return amount * 2
 ```
@@ -166,5 +188,6 @@ module is compiled without importing or executing it.
 
 Unrelated source remains intact before the normal scoped formatter phase.
 Neither action rewrites callers, proves runtime compatibility, nor infers
-imports when moving files or symbols. A sequence of import edits needs the
-hash of each simulated intermediate import set, or separate audited jobs.
+imports when moving files or symbols. Separate import actions need the hash of each simulated intermediate import
+set, or separate audited jobs. In a7, prefer `edit_imports` for multiple ordered
+changes: its guard targets the import set at entry to that action.

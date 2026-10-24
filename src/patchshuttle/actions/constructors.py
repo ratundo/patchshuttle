@@ -86,8 +86,9 @@ def read_symbol(
     symbol: str,
     *,
     max_bytes: int | None = None,
+    include_template: bool = False,
 ) -> Action:
-    parameters = {"path": path, "symbol": symbol}
+    parameters = {"path": path, "symbol": symbol, "include_template": include_template}
     if max_bytes is not None:
         parameters["max_bytes"] = max_bytes
     return Action({"read_symbol": parameters})
@@ -445,8 +446,10 @@ def _add_guards(
         parameters["expected_sha256"] = expected_sha256
 
 
-def read_imports(path: str, *, max_bytes: int | None = None) -> Action:
-    parameters = {"path": path}
+def read_imports(
+    path: str, *, max_bytes: int | None = None, include_template: bool = False
+) -> Action:
+    parameters = {"path": path, "include_template": include_template}
     if max_bytes is not None:
         parameters["max_bytes"] = max_bytes
     return Action({"read_imports": parameters})
@@ -480,8 +483,66 @@ def remove_import(
     )
 
 
+def edit_imports(path: str, edits, *, expected_imports_ast_sha256: str) -> Action:
+    """Apply ordered import edits guarded by the initial simulated import set."""
+    return Action(
+        {
+            "edit_imports": {
+                "path": path,
+                "edits": edits,
+                "expected_imports_ast_sha256": expected_imports_ast_sha256,
+            }
+        }
+    )
+
+
+def python_dependencies(
+    path: str = ".",
+    *,
+    max_files: int = 300,
+    max_findings: int = 2000,
+    max_bytes: int = 50000,
+) -> Action:
+    return Action(
+        {
+            "python_dependencies": dict(
+                path=path,
+                max_files=max_files,
+                max_findings=max_findings,
+                max_bytes=max_bytes,
+            )
+        }
+    )
+
+
+def python_references(
+    module: str,
+    symbol: str,
+    *,
+    path: str = ".",
+    max_files: int = 300,
+    max_findings: int = 2000,
+    max_bytes: int = 50000,
+) -> Action:
+    return Action(
+        {
+            "python_references": dict(
+                module=module,
+                symbol=symbol,
+                path=path,
+                max_files=max_files,
+                max_findings=max_findings,
+                max_bytes=max_bytes,
+            )
+        }
+    )
+
+
 __all__ = [
+    "python_references",
+    "python_dependencies",
     "read_imports",
+    "edit_imports",
     "ensure_import",
     "remove_import",
     "apply_diff",

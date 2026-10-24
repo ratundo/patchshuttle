@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -19,6 +20,8 @@ from patchshuttle._line_ranges import select_line_range
 from patchshuttle._process import ProcessCommand, ProcessStatus, run_process
 from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle._version import __version__
+from patchshuttle.analysis.dependencies import analyze_dependencies
+from patchshuttle.analysis.references import analyze_references
 from patchshuttle.errors import ExecutionError, ExecutionErrorCode, PolicyError
 from patchshuttle.inventory import (
     InventoryError,
@@ -29,6 +32,11 @@ from patchshuttle.inventory import (
 from patchshuttle.models import JobKind
 from patchshuttle.planner import Plan, plan_job
 from patchshuttle.planning.imports import inspect_imports
+from patchshuttle.planning.templates import (
+    append_template,
+    imports_template,
+    symbol_template,
+)
 from patchshuttle.policy import PathKind, Policy, WorkspacePath
 from patchshuttle.preflight import detect_python_encoding
 
@@ -168,6 +176,10 @@ def _execute_action(plan: Plan, name: str, parameters) -> tuple[str, str]:
         return AuditStatus.COMPLETED, _read_imports(plan, parameters)
     if name == "read_symbol":
         return AuditStatus.COMPLETED, _read_symbol(plan, parameters)
+    if name == "python_references":
+        return AuditStatus.COMPLETED, _python_dependencies(plan, parameters)
+    if name == "python_dependencies":
+        return AuditStatus.COMPLETED, _python_dependencies(plan, parameters)
     if name == "python_structure":
         return AuditStatus.COMPLETED, _python_structure(plan, parameters)
     if name == "find_files":
@@ -385,8 +397,39 @@ def _read_symbol(plan: Plan, parameters) -> str:
     limit = (
         parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes
     )
+    if parameters.include_template:
+        output = append_template(
+            output,
+            symbol_template(target.relative.as_posix(), parameters.symbol, source),
+            limit,
+        )
     bounded, _ = _bounded_output(output, limit)
     return bounded
+
+
+def _python_dependencies(plan: Plan, parameters) -> str:
+    root = Policy(plan.workspace).resolve(parameters.path, allow_root=True)
+    candidates = _audit_files(plan, root, glob="*.py")
+    files = {}
+    for path, target in candidates[: parameters.max_files]:
+        _, text = _decode_text(_read_regular_file(plan, target), path=path)
+        files[path.relative_to(root.relative).as_posix()] = text
+    if hasattr(parameters, "module"):
+        report = analyze_references(
+            files, parameters.module, parameters.symbol, parameters.max_findings
+        )
+    else:
+        report = analyze_dependencies(files, parameters.max_findings)
+    report["import_root"] = root.relative.as_posix()
+    report["files_considered"] = len(files)
+    report["file_limit_reached"] = len(candidates) > parameters.max_files
+    report["scope"] = "visible policy-allowed files under one import root"
+    limit = min(
+        parameters.max_bytes, plan.workspace.config.execution.max_single_file_bytes
+    )
+    return _bounded_output(
+        json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2), limit
+    )[0]
 
 
 def _python_structure(plan: Plan, parameters) -> str:
@@ -848,7 +891,11 @@ def _read_imports(plan: Plan, parameters) -> str:
             *(ast.unparse(node) for node in nodes),
         )
     )
-    return _bounded_output(
-        output,
-        parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes,
-    )[0]
+    limit = (
+        parameters.max_bytes or plan.workspace.config.execution.max_single_file_bytes
+    )
+    if parameters.include_template:
+        output = append_template(
+            output, imports_template(target.relative.as_posix(), digest), limit
+        )
+    return _bounded_output(output, limit)[0]

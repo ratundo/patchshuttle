@@ -6,7 +6,8 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. Version `0.1.0a6` implements the complete
+> PatchShuttle is alpha software. This branch prepares `0.1.0a7`; the latest
+> recorded published version is `0.1.0a6`. It implements the complete
 > local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
@@ -439,7 +440,8 @@ retained formatted-file states, final check results, audit observations, and a
 workspace comparison where applicable.
 
 An audit executes `tree`, `read`, literal `search`, bounded `search_context`,
-Python `read_symbol`, `find_files`, `file_info`, SHA-256 `hash`, canonical
+Python `read_symbol`, `read_imports`, `python_structure`, `python_dependencies`,
+`python_references`, `find_files`, `file_info`, SHA-256 `hash`, canonical
 `hash_range`, `git_status`, and `environment`. Traversal, file reads, match
 counts, and recorded output are bounded by local policy. Protected and ignored
 paths are skipped, source content appears only when explicitly requested by a
@@ -459,7 +461,8 @@ automatically undo those changes.
 
 A patch plan may contain `create_directory`, `create_file`, `replace_exact`,
 `replace_symbol`, `insert_before`, `insert_after`, `delete_exact`,
-`replace_range`, `delete_range`, `insert_at_line`, or `apply_diff` actions and
+`replace_range`, `delete_range`, `insert_at_line`, `apply_diff`, `ensure_import`,
+`remove_import`, `edit_imports`, `move_file`, `move_range`, or `move_symbol` actions and
 applies the final bytes already computed by the planner.
 
 The optional line-range actions are strict guarded operations for cases where
@@ -720,18 +723,19 @@ actions:
       symbol: Service.run
 ```
 
-If a change is needed, copy the canonical SHA-256 returned by `read_symbol`
-into a guarded patch action:
+If a change is needed, use the audit-derived draft or copy `ast_sha256` from
+`read_symbol` on the same Python minor version. Add its text `sha256` too when
+comments must be guarded. The action below is illustrative:
 
 ```yaml
 actions:
   - replace_symbol:
       path: src/example/service.py
       symbol: Service.run
-      expected_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-      new_content: |
-        def run(self, value):
-            return value
+      expected_ast_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      new_content: |2
+            def run(self, value):
+                return value
 ```
 
 The same audit can be constructed through the public Python adapter:
@@ -847,7 +851,7 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a6-py3-none-any.whl --version 0.1.0a6
+python tools/wheel_smoke.py dist/patchshuttle-0.1.0a7-py3-none-any.whl --version 0.1.0a7
 ```
 
 The `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` alpha releases each passed the
@@ -965,7 +969,9 @@ The implemented local cycle is:
 5. For a patch, run optional changed-HTML linting, controlled checks, the
    locally resolved isort/Black scopes, and final checks.
 6. Receive a timestamped log or generate a fresh handoff.
-7. Review the log, upload it to the AI, and continue with the next job.
+7. Retrieve configured MCP history or provide the log through an authorized
+   channel. Current MCP history returns summaries/references, not full logs.
+   Review the observed result before continuing with the next job.
 
 See [SPEC_V0_1.md](SPEC_V0_1.md) for the approved product contract and
 [CHANGELOG.md](CHANGELOG.md) for release notes. PatchShuttle is designed for
@@ -1036,3 +1042,18 @@ owner-configured authenticated MCP server (`patchshuttle[mcp]`).
 Optional [Django migrations](docs/DJANGO_MIGRATIONS.md) provide reviewed plans,
 locks and recovery journals (`patchshuttle[django]`). A live ChatGPT deployment
 requires the owner's HTTPS endpoint and OAuth configuration.
+
+
+## AI workflow in a7 development
+
+Start with the installed capabilities/schema and the workspace handoff. The
+[AI guide](src/patchshuttle/resources/AI_GUIDE.md) contains the operation decision
+table, guard sources, refactoring checklist and recovery boundaries. Existing
+Python declaration edits should normally use `read_symbol` then `replace_symbol`;
+request `include_template: true` for a guarded draft. Use `edit_imports` for a
+sequence of import edits. Keep audits separate from patches and review actual
+execution outcomes. The explicit `|2` in the method example preserves Python
+indentation after YAML parsing. Documentation examples use illustrative bodies
+and hashes; replace these with observed source and guards before submitting.
+
+This section describes the development branch, not a published a7 release.

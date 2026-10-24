@@ -19,6 +19,11 @@ from patchshuttle.inventory import (
     capture_inventory,
 )
 from patchshuttle.logging import capabilities_hash, current_run_clock, write_named_log
+from patchshuttle.planning.guidance import (
+    PYTHON_SYMBOL_GUIDANCE,
+    RESULT_RETRIEVAL_GUIDANCE,
+    SYMBOL_WORKFLOW_EXAMPLE,
+)
 from patchshuttle.registry import Registry, load_registry
 from patchshuttle.runner import acquire_workspace_lock
 from patchshuttle.selfdoc import AUDIT_ACTIONS, CHANGE_ACTIONS, CHECKS
@@ -188,7 +193,10 @@ def _handoff_text(
             ".psh.yaml job using protocol 1 and the project_id below. Use an "
             "audit job when more evidence is needed. Do not return shell commands "
             "or ask PatchShuttle to weaken local policy. After the user runs the "
-            "job, request the resulting PatchShuttle log before preparing another job.",
+            "job, retrieve its observed result before preparing another job.",
+            PYTHON_SYMBOL_GUIDANCE,
+            RESULT_RETRIEVAL_GUIDANCE,
+            SYMBOL_WORKFLOW_EXAMPLE,
             "",
             "=== PROJECT ===",
             "protocol: 1",
@@ -200,6 +208,7 @@ def _handoff_text(
             "ai_handoff_version: 2",
             f"capabilities_hash: {capabilities_hash()}",
             "capabilities_command: patchshuttle capabilities",
+            "guide_refresh_command: patchshuttle docs refresh",
             "",
             "=== LATEST_RUN_SUMMARY ===",
             latest_summary,

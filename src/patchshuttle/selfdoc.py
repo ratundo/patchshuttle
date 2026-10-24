@@ -15,6 +15,8 @@ AUDIT_ACTIONS = (
     "search_context",
     "read_symbol",
     "read_imports",
+    "python_references",
+    "python_dependencies",
     "python_structure",
     "find_files",
     "file_info",
@@ -28,6 +30,7 @@ CHANGE_ACTIONS = (
     "create_file",
     "replace_exact",
     "replace_symbol",
+    "edit_imports",
     "ensure_import",
     "remove_import",
     "insert_before",
@@ -89,7 +92,7 @@ summary: Replace an exact text occurrence count in one existing text file.
 fields: path, old, and new (required); expected_count=1 (optional)
 planning: The exact old text must occur expected_count times in the current simulated file.
 diagnostics: A mismatch reports exact match lines or up to three bounded similarity-ranked nearby snippets.
-whitespace: Exact means exact; indentation, line endings, and spaces are not normalized.
+whitespace: Exact means exact for indentation and spaces; CRLF/CR are canonicalized to LF for matching, and file newline style is preserved on write.
 example:
   - replace_exact:
       path: src/example.py
@@ -103,13 +106,14 @@ fields: path, dotted symbol, and new_content (required); expected_sha256 and/or 
 planning: Resolution and guard validation use the current sequential simulated file state.
 canonicalization: expected_sha256 uses canonical LF UTF-8 source; expected_ast_sha256 uses read_symbol ast_sha256, ignoring formatting and comments. AST hashes are specific to the reported Python minor version. When both guards are supplied both must match.
 idempotency: Exact desired symbol content becomes NO_CHANGE even when the prior guard no longer matches.
+indentation: Preserve Python indentation after YAML parsing; use an explicit |2 block indicator for the nested method example below.
 safety: AST-guarded replacements must retain one declaration with the same name and kind, compile successfully, and preserve unique resolution. Missing or duplicate resolution and hash mismatches fail without fuzzy relocation.
 example:
   - replace_symbol:
       path: src/example.py
       symbol: Service.run
-      expected_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      new_content: |
+      expected_ast_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      new_content: |2
             def run(self):
                 return 2""",
     "insert_before": """\
@@ -238,6 +242,33 @@ _EXPLANATIONS["ensure_import"] = (
 )
 _EXPLANATIONS["remove_import"] = (
     "Remove one exact top-level import alias. Same parameters as ensure_import. Absent alias is a guarded no-op; multi-alias removal and shared semicolon lines are rejected. Comments are retained; callers are not rewritten."
+)
+_EXPLANATIONS["edit_imports"] = (
+    "Apply 1-100 ordered import edits with one initial expected_imports_ast_sha256 from read_imports. "
+    "Requires path and edits: [{operation: ensure|remove, statement: ...}]. "
+    "The guard checks the simulated file at action entry, even for no-op; earlier actions may invalidate it. "
+    "Each step retains single-import safety checks. A failure reports its step and rejects the plan without writes. "
+    "No caller rewriting or automatic reordering."
+)
+for _topic in ("read_symbol", "read_imports"):
+    _EXPLANATIONS[_topic] += (
+        " Optional include_template: true adds a complete JSON action fragment (valid YAML) "
+        "within max_bytes, otherwise omits it. Review in a separate patch job with checks. "
+        "Symbol drafts copy current content and both guards; import drafts require nonempty edits."
+    )
+_EXPLANATIONS["python_dependencies"] = (
+    "Read-only static import candidates under path, an explicit import-root directory (use src for src layouts). "
+    "Options: max_files 1-1000 (300), max_findings 1-10000 (2000), max_bytes 1-1000000 (50000). "
+    "Reports local import candidates, cycle groups, unresolved/ambiguous modules, parse errors and syntactic dynamic-import hints. "
+    "Includes nested/conditional imports conservatively. No runtime imports, symbol-reference resolution, automatic moves or rewrites. "
+    "File limits and policy exclusions limit the graph; no cycles is not proof of safe refactoring. Output may be truncated."
+)
+_EXPLANATIONS["python_references"] = (
+    "Audit possible references to module + symbol, e.g. module: app.services, symbol: Service.run. "
+    "path is the explicit import root; max_files, max_findings and max_bytes match python_dependencies. "
+    "Reports target declaration status, import-prefix candidates, alias-qualified expressions and unresolved attributes. "
+    "No binding/type inference, reexport-chain resolution, dynamic/string lookup or automatic rewrites. "
+    "Shadowing can create false positives; absence of candidates does not establish safety."
 )
 EXPLAIN_TOPICS = tuple(_EXPLANATIONS)
 

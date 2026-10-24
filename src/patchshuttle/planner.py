@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import codecs
 import difflib
 import hashlib
@@ -10,7 +9,6 @@ import json
 import re
 import shutil
 import stat
-import textwrap
 import tokenize
 from dataclasses import replace
 from importlib.util import find_spec
@@ -33,13 +31,13 @@ from patchshuttle._line_ranges import (
 )
 from patchshuttle._python_symbols import find_symbol_source
 from patchshuttle.errors import PlanningError, PlanningErrorCode
-from patchshuttle.formatter_policy import (
-    FORMATTER_ORDER,
-)
+from patchshuttle.formatter_policy import FORMATTER_ORDER
 from patchshuttle.inventory import InventoryError
 from patchshuttle.models import Action, Check, Job, JobKind
 from patchshuttle.planning.imports import plan_import_edit
+from patchshuttle.planning.symbols import replacement_diagnostics, validate_replacement
 from patchshuttle.planning.types import (
+    DIRECTORY_AUDIT_ACTIONS,
     ActionDisposition,
     FileDisposition,
     NewlineStyle,
@@ -219,7 +217,7 @@ class _Planner:
         parameters = action.parameters
         paths: tuple[PurePosixPath, ...] = ()
         detail: str | None = None
-        if action.name in {"tree", "find_files"}:
+        if action.name in DIRECTORY_AUDIT_ACTIONS:
             target = self._audit_target(
                 cast(str, parameters.path),
                 item_id=item_id,
@@ -342,7 +340,7 @@ class _Planner:
             self._plan_file_move(action, item_id=item_id)
         elif action.name in {"move_range", "move_symbol"}:
             self._plan_transfer(action, item_id=item_id)
-        elif action.name in {"ensure_import", "remove_import"}:
+        elif action.name in {"ensure_import", "remove_import", "edit_imports"}:
             plan_import_edit(self, action, item_id=item_id)
         elif action.name == "replace_symbol":
             self._plan_symbol_edit(action, item_id=item_id)
@@ -505,34 +503,20 @@ class _Planner:
 
         if parameters.expected_ast_sha256 is not None:
             try:
-                replacement_tree = ast.parse(textwrap.dedent(replacement))
-                expected_type = {
-                    "class": ast.ClassDef,
-                    "function": ast.FunctionDef,
-                    "async_function": ast.AsyncFunctionDef,
-                }[source.kind]
-                if (
-                    len(replacement_tree.body) != 1
-                    or not isinstance(replacement_tree.body[0], expected_type)
-                    or replacement_tree.body[0].name != parameters.symbol.split(".")[-1]
-                ):
-                    raise ValueError(
-                        "replacement must contain exactly the same symbol name and kind"
-                    )
-                compile(updated, path.as_posix(), "exec", dont_inherit=True)
-                resolved = find_symbol_source(
-                    updated, parameters.symbol, filename=str(path)
+                validate_replacement(
+                    updated,
+                    replacement,
+                    parameters.symbol,
+                    source.kind,
+                    path.as_posix(),
                 )
-                if resolved is None or resolved.kind != source.kind:
-                    raise ValueError(
-                        "replacement must preserve unique symbol resolution"
-                    )
             except (SyntaxError, ValueError) as exc:
                 raise self._error(
                     PlanningErrorCode.PYTHON_SOURCE_INVALID,
                     f"structural replacement failed validation: {exc}",
                     item_id,
                     path=path.as_posix(),
+                    details=replacement_diagnostics(selected.content, replacement),
                 ) from exc
 
         disposition = self._update_state(state, updated, item_id=item_id)

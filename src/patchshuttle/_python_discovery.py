@@ -11,8 +11,10 @@ from patchshuttle.models import Job
 _TEXT_ACTIONS = frozenset(
     {"delete_exact", "insert_after", "insert_before", "replace_exact"}
 )
-_SYMBOL_ACTIONS = frozenset({"replace_symbol"})
-_LINE_ACTIONS = frozenset({"delete_range", "insert_at_line", "replace_range"})
+_SYMBOL_ACTIONS = frozenset({"replace_symbol", "move_symbol"})
+_LINE_ACTIONS = frozenset(
+    {"delete_range", "insert_at_line", "replace_range", "move_range"}
+)
 _FAILURE_SIGNALS = {
     "LINE_RANGE_GUARD_MISMATCH": "LINE_TARGETING_FAILURE",
     "LINE_RANGE_OUT_OF_BOUNDS": "LINE_TARGETING_FAILURE",
@@ -47,6 +49,8 @@ class PythonDiscoveryEvaluation:
     declared_python_line_actions: int
     failure_signal: str | None
     reason_codes: tuple[str, ...]
+    declared_python_import_actions: int = 0
+    declared_python_file_move_actions: int = 0
 
 
 def evaluate_python_discovery(
@@ -77,6 +81,8 @@ def evaluate_python_discovery(
     declared_python_symbol_actions = 0
     declared_python_line_actions = 0
 
+    import_actions = 0
+    file_moves = 0
     for index, action in enumerate(job.actions, start=1):
         name = action.name
         parameters = action.parameters
@@ -118,6 +124,10 @@ def evaluate_python_discovery(
 
         if not python_targeted:
             continue
+        if name in {"ensure_import", "remove_import", "edit_imports"}:
+            import_actions += 1
+        if name == "move_file":
+            file_moves += 1
         if name in _TEXT_ACTIONS:
             declared_python_text_actions += 1
         elif name in _SYMBOL_ACTIONS:
@@ -142,6 +152,8 @@ def evaluate_python_discovery(
         declared_python_line_actions=declared_python_line_actions,
         failure_signal=failure_signal,
     )
+    reason_codes += ("PYTHON_IMPORT_TARGETING_USED",) if import_actions else ()
+    reason_codes += ("PYTHON_FILE_MOVE_USED",) if file_moves else ()
     applicable = bool(python_paths or reason_codes)
     return PythonDiscoveryEvaluation(
         applicable=applicable,
@@ -164,6 +176,8 @@ def evaluate_python_discovery(
         declared_python_line_actions=declared_python_line_actions,
         failure_signal=failure_signal,
         reason_codes=reason_codes,
+        declared_python_import_actions=import_actions,
+        declared_python_file_move_actions=file_moves,
     )
 
 
