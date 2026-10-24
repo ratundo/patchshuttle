@@ -1,6 +1,6 @@
 # PatchShuttle release guide
 
-This guide records the immutable published `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` evidence and
+This guide records immutable published release evidence through `0.1.0a6` and
 the staged qualification procedure for later releases. Do not publish a
 stable `0.1.0` release until every acceptance criterion in `SPEC_V0_1.md` has
 passed and the stable release is approved.
@@ -158,7 +158,7 @@ python tools/wheel_smoke.py dist/patchshuttle-<VERSION>-py3-none-any.whl --versi
 `release_checks.py` requires exactly one wheel and one source archive for the
 source version and writes `dist/SHA256SUMS`. Replace `<VERSION>` with the exact
 source version under qualification. For the most recent recorded qualification it
-was `0.1.0a4`. Do not reuse an immutable published version for a future upload.
+was `0.1.0a6`. Do not reuse an immutable published version for a future upload.
 
 During a source-version transition, metadata in an already-installed editable
 environment may still report the previous version until the package is
@@ -181,7 +181,8 @@ logs must keep exposing resolved formatter and architecture decisions.
 3. Do not upload `.venv/`, caches, previous phase archives, or local runtime
    `patches/` directories.
 4. Push the default branch and wait for the `CI` workflow.
-5. Require all five matrix jobs and the package job to pass before publishing.
+5. Require all five matrix jobs, the PostgreSQL integration job and the package
+   job to pass before publishing.
 
 The required matrix is Ubuntu/Python 3.10, 3.12, and 3.14 plus
 Windows/Python 3.12 and 3.14. A local Linux result does not replace these jobs.
