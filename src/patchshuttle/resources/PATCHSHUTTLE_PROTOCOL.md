@@ -31,7 +31,10 @@ name.
 - `search`: `path`, `text`, `glob`, `case_sensitive`, `max_results`.
 - `search_context`: the `search` fields plus bounded `before` and `after`
   physical-line counts.
-- `read_symbol`: Python `path`, dotted `symbol`, and optional `max_bytes`.
+- `read_symbol`: Python `path`, dotted `symbol`, optional `max_bytes` and `include_template`.
+- `read_imports`: Python `path`, optional `max_bytes` and `include_template`.
+- `python_dependencies`: import-root `path`, optional `max_files`, `max_findings`, `max_bytes`.
+- `python_references`: `module`, `symbol`, import-root `path`, optional `max_files`, `max_findings`, `max_bytes`.
 - `python_structure`: optional `path`, `max_files`, `max_symbols`, and `compact`.
 - `find_files`: `path`, `glob`, `max_results`.
 - `file_info`: `path`.
@@ -84,7 +87,8 @@ patch scope. The normal audit output limit remains authoritative.
 - `replace_exact`: `path`, `old`, `new`, `expected_count`.
 - `replace_symbol`: `path`, dotted `symbol`, and `new_content`, plus
   `expected_sha256` and/or `expected_ast_sha256` from `read_symbol`.
-  Both must match when both are supplied. The AST guard ignores formatting
+  Both must match for changed content; identical desired source is NO_CHANGE
+  even with old guard values. The AST guard ignores formatting
   and ordinary comments and is scoped to the reported `ast_python` version.
   AST-guarded replacements must preserve the declaration name and kind,
   compile without execution, and retain unique qualified-symbol resolution.
@@ -98,6 +102,11 @@ patch scope. The normal audit output limit remains authoritative.
 - `insert_at_line`: `path`, positive `line`, `position: before|after`,
   non-empty `content`, plus `expected_content` and/or `expected_sha256`.
 - `apply_diff`: `diff`, optional `strip` from `0` through `2`.
+- `ensure_import`, `remove_import`: `path`, `statement`, `expected_imports_ast_sha256`.
+- `edit_imports`: `path`, `expected_imports_ast_sha256`, ordered `edits`.
+- `move_file`: `path`, `destination`, raw-byte `expected_sha256`.
+- `move_range`: guarded source range, `destination`, `destination_line`, `expected_destination_sha256`.
+- `move_symbol`: `path`, `symbol`, `expected_ast_sha256`, `destination`, `expected_destination_sha256`, optional `destination_class`.
 
 Line numbers are 1-based and are only positions, never proof of identity.
 Every line-changing action requires at least one guard. If both guards are

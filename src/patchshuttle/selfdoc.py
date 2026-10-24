@@ -92,7 +92,7 @@ summary: Replace an exact text occurrence count in one existing text file.
 fields: path, old, and new (required); expected_count=1 (optional)
 planning: The exact old text must occur expected_count times in the current simulated file.
 diagnostics: A mismatch reports exact match lines or up to three bounded similarity-ranked nearby snippets.
-whitespace: Exact means exact; indentation, line endings, and spaces are not normalized.
+whitespace: Exact means exact for indentation and spaces; CRLF/CR are canonicalized to LF for matching, and file newline style is preserved on write.
 example:
   - replace_exact:
       path: src/example.py
@@ -106,13 +106,14 @@ fields: path, dotted symbol, and new_content (required); expected_sha256 and/or 
 planning: Resolution and guard validation use the current sequential simulated file state.
 canonicalization: expected_sha256 uses canonical LF UTF-8 source; expected_ast_sha256 uses read_symbol ast_sha256, ignoring formatting and comments. AST hashes are specific to the reported Python minor version. When both guards are supplied both must match.
 idempotency: Exact desired symbol content becomes NO_CHANGE even when the prior guard no longer matches.
+indentation: Preserve Python indentation after YAML parsing; use an explicit |2 block indicator for the nested method example below.
 safety: AST-guarded replacements must retain one declaration with the same name and kind, compile successfully, and preserve unique resolution. Missing or duplicate resolution and hash mismatches fail without fuzzy relocation.
 example:
   - replace_symbol:
       path: src/example.py
       symbol: Service.run
-      expected_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      new_content: |
+      expected_ast_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      new_content: |2
             def run(self):
                 return 2""",
     "insert_before": """\

@@ -5,6 +5,9 @@ uses semantic versioning, including Python-compatible pre-release versions.
 
 ## Unreleased - 0.1.0a7 development
 
+- Audit AI instructions: complete action catalogs, correct method YAML indentation
+  and job-ID rules, clarify guard sources, MCP limits and database boundaries.
+
 - Add `python_references` for bounded, explicitly unverified symbol-reference
   candidates with import aliases and unresolved attributes.
 

@@ -1,7 +1,7 @@
 """Bounded advisory guidance; never changes planning or execution decisions."""
 
-PYTHON_SYMBOL_GUIDANCE = "For existing Python classes/functions/methods, prefer read_symbol + replace_symbol over text actions when the intended edit is one symbol replacement. Use python_structure only when the target is unknown. Preserve destination indentation; copy guards from a fresh audit."
-RESULT_RETRIEVAL_GUIDANCE = "Retrieve the observed result through configured MCP history when available; otherwise request the resulting log. Never assume an MCP connection exists or infer success from a plan."
+PYTHON_SYMBOL_GUIDANCE = "For existing Python classes/functions/methods, prefer read_symbol + replace_symbol over text actions when the intended edit is one symbol replacement. Use python_structure only when the target is unknown. Preserve destination indentation; copy guards from a fresh audit. Request include_template: true for a reviewable draft; prefer edit_imports for multiple import edits."
+RESULT_RETRIEVAL_GUIDANCE = "Retrieve the observed result through configured MCP history when available; otherwise request the resulting log. MCP history returns summaries and log references, not full logs or source. Obtain detailed audit output through an authorized channel when needed. Never assume an MCP connection exists or infer success from a plan."
 SYMBOL_ADVISORY = (
     "PYTHON_SYMBOL_ACTION_AVAILABLE: If editing an existing Python declaration, "
     "consider read_symbol + replace_symbol. Text/range actions remain valid "
@@ -31,8 +31,8 @@ SYMBOL_WORKFLOW_EXAMPLE = """Python action fragments; audit first, then a separa
     path: app/models.py
     symbol: Service.run
     expected_ast_sha256: "<ast_sha256 from read_symbol>"
-    new_content: |
+    new_content: |2
           def run(self):
               return self.execute()
-Example body only: adapt to audited project code. Do not submit placeholders.
+Explicit |2 preserves the four Python spaces before def. Example body only: adapt to audited project code. Do not submit placeholders.
 Use the same Python minor version for audit and planning."""
