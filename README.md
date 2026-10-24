@@ -6,7 +6,8 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. Version `0.1.0a6` implements the complete
+> PatchShuttle is alpha software. This branch prepares `0.1.0a7`; the latest
+> recorded published version is `0.1.0a6`. It implements the complete
 > local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
@@ -850,7 +851,7 @@ python -m coverage report --fail-under=100
 python -m build
 python -m twine check dist/*
 python tools/release_checks.py dist
-python tools/wheel_smoke.py dist/patchshuttle-0.1.0a6-py3-none-any.whl --version 0.1.0a6
+python tools/wheel_smoke.py dist/patchshuttle-0.1.0a7-py3-none-any.whl --version 0.1.0a7
 ```
 
 The `0.1.0a2`, `0.1.0a3`, and `0.1.0a4` alpha releases each passed the

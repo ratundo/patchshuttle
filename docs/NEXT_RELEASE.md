@@ -3,7 +3,7 @@
 Status: 0.1.0a6 published; see RELEASE.md for immutable publication evidence.
 The sections below describe a6 scope and remaining work.
 
-## 0.1.0a7 development
+## 0.1.0a7 release candidate
 
 Implemented a7 scope:
 
@@ -19,8 +19,9 @@ Implemented a7 scope:
 - Audited AI guide, handoff, protocol and CLI explanations, with executable
   YAML example tests and action-catalog checks.
 
-No a7 publication is recorded yet. Source version remains a6 during development;
-do not upload development artifacts using that already-published version.
+No a7 publication is recorded yet. Source version is now `0.1.0a7` for candidate
+qualification. Final commit CI, TestPyPI and production publication gates remain
+required before recording this version as released.
 See ROADMAP.md for the broader backlog. The following sections record the a6
 foundation and its remaining limitations, not additional a7 completion claims.
 
