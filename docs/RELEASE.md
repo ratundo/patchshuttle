@@ -290,3 +290,38 @@ artifacts (matching sizes and SHA-256 digests):
 
 This publication record does not extend the separately scoped a2
 **Tested with ChatGPT** claim or claim deployment of a live MCP endpoint.
+
+
+## Recorded `0.1.0a7` qualification
+
+Published on 2026-10-24 from tag `v0.1.0a7`, resolving to
+`566595e77c80be9ab4d7b637db4b27acead8b87d` (PR #2 merge).
+
+Scope: symbol-first AI workflow guidance, reviewed guide refresh, bounded
+indentation diagnostics, ordered `edit_imports`, optional audit action drafts,
+and read-only dependency/reference candidate audits. Installed guidance and
+YAML examples have contract tests; these tests do not measure AI effectiveness.
+
+External gates:
+
+- [final main CI](https://github.com/ratundo/patchshuttle/actions/runs/40098333691):
+  Ubuntu/Windows Python matrix, PostgreSQL 16 and distribution smoke checks;
+- [TestPyPI build, publication and clean-index verification](https://github.com/ratundo/patchshuttle/actions/runs/40098808397);
+- [GitHub pre-release](https://github.com/ratundo/patchshuttle/releases/tag/v0.1.0a7);
+- [production PyPI build, publication and clean-index verification](https://github.com/ratundo/patchshuttle/actions/runs/40123159718).
+
+Local candidate qualification: 1179 tests passed, one unavailable Unix-socket
+skip and one existing Starlette warning; 100% statement/branch coverage.
+Black/isort passed for 147 files. Wheel and source distribution metadata,
+contents and clean-wheel workflow checks passed.
+
+TestPyPI and PyPI JSON APIs reported identical sizes and SHA-256 digests:
+
+- `patchshuttle-0.1.0a7-py3-none-any.whl`, 224747 bytes:
+  `55a4b6ca2a3499ea63e4a493f72d86b4fcb7fd0dbb8e29fb20b4fe3d9a368814`;
+- `patchshuttle-0.1.0a7.tar.gz`, 394211 bytes:
+  `b0486a5d6c39cad2285f872825e4d5f0a3017042677ea211cfcd817e6faa9bf9`.
+
+The reference audit reports syntactic candidates, not verified callers. No
+binding-aware rewrite, live MCP deployment, original Windows isort incident
+reproduction, or extension of the a2 **Tested with ChatGPT** claim is implied.

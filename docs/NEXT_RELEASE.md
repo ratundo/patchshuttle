@@ -1,9 +1,9 @@
 # Next release: structural editing and controlled refactoring
 
-Status: 0.1.0a6 published; see RELEASE.md for immutable publication evidence.
-The sections below describe a6 scope and remaining work.
+Status: 0.1.0a7 published; see RELEASE.md for immutable publication evidence.
+The sections below describe a7 additions, the a6 foundation and remaining work.
 
-## 0.1.0a7 release candidate
+## 0.1.0a7 released
 
 Implemented a7 scope:
 
@@ -19,9 +19,8 @@ Implemented a7 scope:
 - Audited AI guide, handoff, protocol and CLI explanations, with executable
   YAML example tests and action-catalog checks.
 
-No a7 publication is recorded yet. Source version is now `0.1.0a7` for candidate
-qualification. Final commit CI, TestPyPI and production publication gates remain
-required before recording this version as released.
+Version `0.1.0a7` was published on 2026-10-24 after final commit CI, TestPyPI
+and production PyPI verification. See RELEASE.md for exact artifacts and runs.
 See ROADMAP.md for the broader backlog. The following sections record the a6
 foundation and its remaining limitations, not additional a7 completion claims.
 

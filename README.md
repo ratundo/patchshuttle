@@ -6,8 +6,7 @@ describes a small job, the user reviews and runs it locally, and PatchShuttle
 records the result for the next iteration.
 
 > [!IMPORTANT]
-> PatchShuttle is alpha software. This branch prepares `0.1.0a7`; the latest
-> recorded published version is `0.1.0a6`. It implements the complete
+> PatchShuttle is alpha software. Published version `0.1.0a7` implements the complete
 > local v0.1 workflow. It executes bounded read-only
 > audits, approved patch transactions, and approved one-pass verification jobs
 > under a project lock. Patch jobs retain backups, run controlled checks, apply
@@ -64,7 +63,7 @@ After publication, install the exact alpha release from PyPI:
 ```bash
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install "patchshuttle==0.1.0a6"
+python -m pip install "patchshuttle==0.1.0a7"
 ```
 
 For development from a local checkout:
@@ -77,7 +76,7 @@ To enable opt-in HTML template linting in an installed release, install the
 `html` extra:
 
 ```bash
-python -m pip install "patchshuttle[html]==0.1.0a6"
+python -m pip install "patchshuttle[html]==0.1.0a7"
 ```
 
 For a local development checkout, install both development and HTML extras:

@@ -3,7 +3,7 @@
 All notable changes to PatchShuttle are recorded in this file. The project
 uses semantic versioning, including Python-compatible pre-release versions.
 
-## 0.1.0a7 - release candidate (not yet published)
+## 0.1.0a7 - 2026-10-24
 
 - Audit AI instructions: complete action catalogs, correct method YAML indentation
   and job-ID rules, clarify guard sources, MCP limits and database boundaries.
